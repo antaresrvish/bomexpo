@@ -28,3 +28,9 @@ go.work.sum
 .idea/
 .vscode/
 .zed/
+
+# macOS
+.DS_Store
+
+# Claude Code
+.claude/
