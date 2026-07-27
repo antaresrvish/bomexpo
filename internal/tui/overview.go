@@ -28,6 +28,8 @@ func (m Model) updateOverview(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.gotoTab(modeCheck)
 	case "a":
 		return m.startAutoAssign()
+	case "w":
+		return m, m.saveCmd()
 	case "enter", " ":
 		return m.gotoTab(m.recommendedTab())
 	}

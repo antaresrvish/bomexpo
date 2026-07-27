@@ -189,6 +189,32 @@ func (m Model) exportCmd(path string) tea.Cmd {
 	}
 }
 
+type savedMsg struct {
+	path              string
+	updated, inserted int
+	err               error
+}
+
+func (m Model) saveCmd() tea.Cmd {
+	if m.pcbPath == "" {
+		return nil
+	}
+	codes := map[string]string{}
+	for _, it := range m.items {
+		if it.LCSC == "" {
+			continue
+		}
+		for _, d := range it.Designators {
+			codes[d] = it.LCSC
+		}
+	}
+	pcb := m.pcbPath
+	return func() tea.Msg {
+		upd, ins, err := kicad.WriteLCSC(pcb, codes)
+		return savedMsg{path: pcb, updated: upd, inserted: ins, err: err}
+	}
+}
+
 type itemState int
 
 const (

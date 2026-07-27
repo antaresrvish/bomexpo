@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
@@ -79,6 +80,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = "export failed: " + msg.err.Error()
 		} else {
 			m.status = "✓ exported → " + msg.path
+		}
+		return m, nil
+
+	case savedMsg:
+		if msg.err != nil {
+			m.err = "write failed: " + msg.err.Error()
+		} else {
+			m.status = fmt.Sprintf("✓ wrote LCSC codes to %s · %d updated, %d added", filepath.Base(msg.path), msg.updated, msg.inserted)
 		}
 		return m, nil
 
@@ -370,9 +379,9 @@ func (m Model) helpLine() string {
 	case modeLoad:
 		hints = [][2]string{{"tab", "complete"}, {"enter", "open"}, {"ctrl+c", "quit"}}
 	case modeOverview:
-		hints = [][2]string{{"enter", "next action"}, {"a", "auto-assign"}, {"3", "components"}, {"5", "check"}, {"tab", "switch"}}
+		hints = [][2]string{{"enter", "next"}, {"a", "auto-assign"}, {"w", "save to pcb"}, {"3", "components"}, {"tab", "switch"}}
 	case modeTable:
-		hints = [][2]string{{"enter", "assign"}, {"a", "auto-assign"}, {"d", "datasheet"}, {"x", "exclude"}, {"tab", "switch"}}
+		hints = [][2]string{{"enter", "assign"}, {"a", "auto-assign"}, {"w", "save to pcb"}, {"x", "exclude"}, {"d", "datasheet"}, {"tab", "switch"}}
 	case modeSearch:
 		hints = [][2]string{{"type", "search"}, {"↑↓", "results"}, {"enter", "pick"}, {"^f/^t/^s", "filters"}, {"esc", "back"}}
 	case modeBoard:

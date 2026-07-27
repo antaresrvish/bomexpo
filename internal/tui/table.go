@@ -58,6 +58,8 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "a":
 		return m.startAutoAssign()
+	case "w":
+		return m, m.saveCmd()
 	case "d":
 		m.openDatasheet(m.cursor)
 	}

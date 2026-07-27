@@ -3,8 +3,9 @@ package kicad
 import "fmt"
 
 type node struct {
-	atom string
-	kids []*node
+	atom       string
+	kids       []*node
+	start, end int // byte span in the source, for in-place edits
 }
 
 func (n *node) head() string {
@@ -59,8 +60,9 @@ func (p *sexpParser) skipSpace() {
 }
 
 func (p *sexpParser) list() (*node, error) {
+	start := p.i
 	p.i++ // consume '('
-	n := &node{}
+	n := &node{start: start}
 	for {
 		p.skipSpace()
 		if p.i >= len(p.s) {
@@ -69,6 +71,7 @@ func (p *sexpParser) list() (*node, error) {
 		switch c := p.s[p.i]; c {
 		case ')':
 			p.i++
+			n.end = p.i
 			return n, nil
 		case '(':
 			kid, err := p.list()
@@ -77,9 +80,13 @@ func (p *sexpParser) list() (*node, error) {
 			}
 			n.kids = append(n.kids, kid)
 		case '"':
-			n.kids = append(n.kids, &node{atom: p.quoted()})
+			st := p.i
+			a := p.quoted()
+			n.kids = append(n.kids, &node{atom: a, start: st, end: p.i})
 		default:
-			n.kids = append(n.kids, &node{atom: p.token()})
+			st := p.i
+			a := p.token()
+			n.kids = append(n.kids, &node{atom: a, start: st, end: p.i})
 		}
 	}
 }
