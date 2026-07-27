@@ -93,12 +93,13 @@ func writeCPL(zw *zip.Writer, placements []kicad.Placement, exclude map[string]b
 		if exclude[p.Designator] {
 			continue
 		}
+		rot := correctRotation(p.Package, p.Rotation, p.Layer == "bottom")
 		cw.Write([]string{
 			p.Designator,
 			strconv.FormatFloat(p.X, 'f', 4, 64),
 			strconv.FormatFloat(p.Y, 'f', 4, 64),
 			layerLabel(p.Layer),
-			strconv.FormatFloat(p.Rotation, 'f', -1, 64),
+			strconv.FormatFloat(rot, 'f', -1, 64),
 		})
 	}
 	cw.Flush()

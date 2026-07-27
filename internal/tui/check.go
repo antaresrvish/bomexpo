@@ -178,6 +178,35 @@ func (m Model) viewCheck(w, h int) string {
 			subtleStyle.Render(fmt.Sprintf("$%.4f", tot/float64(n))))
 	}
 
+	if fixes := export.RotationFixes(m.placements, m.excludeSet()); len(fixes) > 0 {
+		lines = append(lines, "", accentStyle.Render("JLCPCB rotation")+
+			dimStyle.Render(fmt.Sprintf("  %d parts realigned in the CPL for the assembler", len(fixes))))
+		norm := func(d float64) float64 {
+			for d < 0 {
+				d += 360
+			}
+			return d
+		}
+		order := []string{}
+		count := map[string]int{}
+		for _, f := range fixes {
+			key := fmt.Sprintf("%s +%g°", rotFamily(f.Footprint), norm(f.To-f.From))
+			if _, ok := count[key]; !ok {
+				order = append(order, key)
+			}
+			count[key]++
+		}
+		var parts []string
+		for i, k := range order {
+			if i == 6 {
+				parts = append(parts, fmt.Sprintf("+%d more", len(order)-6))
+				break
+			}
+			parts = append(parts, fmt.Sprintf("%s ×%d", k, count[k]))
+		}
+		lines = append(lines, dimStyle.Render("  "+strings.Join(parts, "   ")))
+	}
+
 	for len(lines) < h-2 {
 		lines = append(lines, "")
 	}
@@ -185,6 +214,13 @@ func (m Model) viewCheck(w, h int) string {
 		labelStyle.Render("Output  ")+m.check.out.View(),
 		dimStyle.Render("enter → order-ready zip (BOM + CPL + Gerbers) · * = some parts unassigned"))
 	return strings.Join(lines, "\n")
+}
+
+func rotFamily(fp string) string {
+	if i := strings.IndexAny(fp, "_ "); i > 0 {
+		return fp[:i]
+	}
+	return fp
 }
 
 func colorIssue(st itemState, label string) string {

@@ -1,0 +1,83 @@
+package export
+
+import (
+	"math"
+	"regexp"
+
+	"bomexpo/internal/kicad"
+)
+
+// JLCPCB's pick-and-place references 0° differently than the KiCad standard
+// footprints for a handful of IC families; these offsets realign the exported
+// angle. Passives, QFN/DFN and connectors match already or are part-specific,
+// so anything not listed here keeps KiCad's rotation untouched.
+var rotationRules = []struct {
+	re     *regexp.Regexp
+	offset float64
+}{
+	{regexp.MustCompile(`(?i)^SOT-223`), 180},
+	{regexp.MustCompile(`(?i)^SOT-23`), 180},
+	{regexp.MustCompile(`(?i)^SOT-89`), 180},
+	{regexp.MustCompile(`(?i)^SOT-143`), 180},
+	{regexp.MustCompile(`(?i)^SOT-3[56]3`), 180},
+	{regexp.MustCompile(`(?i)^D_SOD-(123|323|523)`), 180},
+	{regexp.MustCompile(`(?i)^SOIC-`), 270},
+	{regexp.MustCompile(`(?i)^SSOP-`), 270},
+	{regexp.MustCompile(`(?i)^TSSOP-`), 270},
+	{regexp.MustCompile(`(?i)^HTSSOP-`), 270},
+	{regexp.MustCompile(`(?i)^MSOP-`), 270},
+	{regexp.MustCompile(`(?i)^VSSOP-`), 270},
+	{regexp.MustCompile(`(?i)^TSOP-`), 270},
+}
+
+func rotationOffset(footprint string) (float64, bool) {
+	for _, r := range rotationRules {
+		if r.re.MatchString(footprint) {
+			return r.offset, true
+		}
+	}
+	return 0, false
+}
+
+// correctRotation returns the JLCPCB-aligned angle for a footprint. A part on
+// the bottom is mirrored, so its family offset applies with the opposite sign.
+func correctRotation(footprint string, rot float64, bottom bool) float64 {
+	off, ok := rotationOffset(footprint)
+	if !ok {
+		return normDeg(rot)
+	}
+	if bottom {
+		off = -off
+	}
+	return normDeg(rot + off)
+}
+
+func normDeg(d float64) float64 {
+	d = math.Mod(d, 360)
+	if d < 0 {
+		d += 360
+	}
+	return d
+}
+
+type RotationFix struct {
+	Designator string
+	Footprint  string
+	From, To   float64
+}
+
+// RotationFixes lists the placements whose angle the corrector changes, so the
+// UI can show exactly what leaves in the CPL instead of correcting silently.
+func RotationFixes(placements []kicad.Placement, exclude map[string]bool) []RotationFix {
+	var out []RotationFix
+	for _, p := range placements {
+		if exclude[p.Designator] {
+			continue
+		}
+		to := correctRotation(p.Package, p.Rotation, p.Layer == "bottom")
+		if math.Abs(to-normDeg(p.Rotation)) > 1e-6 {
+			out = append(out, RotationFix{p.Designator, p.Package, p.Rotation, to})
+		}
+	}
+	return out
+}

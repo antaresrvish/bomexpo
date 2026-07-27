@@ -158,14 +158,23 @@ func (m Model) detailCmd(idx int, code string) tea.Cmd {
 	}
 }
 
-func (m Model) exportCmd(path string) tea.Cmd {
-	var items []kicad.Item
+func (m Model) excludeSet() map[string]bool {
 	excl := map[string]bool{}
 	for i, it := range m.items {
 		if i < len(m.excluded) && m.excluded[i] {
 			for _, d := range it.Designators {
 				excl[d] = true
 			}
+		}
+	}
+	return excl
+}
+
+func (m Model) exportCmd(path string) tea.Cmd {
+	excl := m.excludeSet()
+	var items []kicad.Item
+	for i, it := range m.items {
+		if i < len(m.excluded) && m.excluded[i] {
 			continue
 		}
 		items = append(items, it)
