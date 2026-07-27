@@ -31,11 +31,12 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		return m.cycleTab(-1)
 	case "1":
-		m.mode = modeLoad
-		return m, m.load.focusCmd()
-	case "3":
-		return m.gotoTab(modeBoard)
+		return m.gotoTab(modeLoad)
+	case "2":
+		return m.gotoTab(modeOverview)
 	case "4":
+		return m.gotoTab(modeBoard)
+	case "5":
 		return m.gotoTab(modeCheck)
 	case "up", "k":
 		m.cursor = max(0, m.cursor-1)

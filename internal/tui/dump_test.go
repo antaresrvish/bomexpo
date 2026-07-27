@@ -19,6 +19,7 @@ func TestDumpFrames(t *testing.T) {
 	m := New(proj)
 	m = step(m, tea.WindowSizeMsg{Width: 132, Height: 40})
 	m = step(m, loadProjectCmd(proj)())
+	dump(t, outDir+"/overview.txt", frame(m))
 
 	// leave a few unassigned to show ○, assign one live via search to show a swap
 	mm, _ := m.openSearch(0)
@@ -46,6 +47,8 @@ func frame(m Model) string {
 	var body string
 	title := ""
 	switch m.mode {
+	case modeOverview:
+		title, body = "Overview", m.viewOverview(w, h)
 	case modeTable:
 		title, body = "Components", m.viewTable(w, h)
 	case modeSearch:

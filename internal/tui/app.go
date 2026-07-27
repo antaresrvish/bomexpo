@@ -57,7 +57,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.boardW, m.boardH = msg.boardW, msg.boardH
 		m.assigned = make([]*lcsc.Part, len(m.items))
 		m.excluded = make([]bool, len(m.items))
-		m.mode = modeTable
+		m.mode = modeOverview
 		m.cursor, m.top = 0, 0
 		m.err = ""
 		m.status = fmt.Sprintf("%s · %d components in %d line items", msg.name, len(m.placements), len(m.items))
@@ -132,6 +132,8 @@ func (m Model) routeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeLoad:
 		return m.updateLoad(msg)
+	case modeOverview:
+		return m.updateOverview(msg)
 	case modeTable:
 		return m.updateTable(msg)
 	case modeSearch:
@@ -151,6 +153,8 @@ func (m Model) routeMouse(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		}
 	}
 	switch m.mode {
+	case modeOverview:
+		return m.mouseOverview(ms, click, wheel)
 	case modeTable:
 		return m.mouseTable(ms, click, wheel)
 	case modeSearch:
@@ -192,13 +196,14 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 
 func (m Model) cycleTab(dir int) (tea.Model, tea.Cmd) {
 	cur := 1
+	want := m.mode
+	if want == modeSearch {
+		want = modeTable
+	}
 	for i, t := range tabs {
-		if t.mode == m.mode {
+		if t.mode == want {
 			cur = i
 		}
-	}
-	if m.mode == modeSearch {
-		cur = 1
 	}
 	return m.gotoTab(tabs[(cur+dir+len(tabs))%len(tabs)].mode)
 }
@@ -226,6 +231,8 @@ func (m Model) View() tea.View {
 	switch m.mode {
 	case modeLoad:
 		title, body = "Open project", m.viewLoad(cw, ch)
+	case modeOverview:
+		title, body = "Overview"+projSuffix(m.name), m.viewOverview(cw, ch)
 	case modeTable:
 		title, body = "Components"+projSuffix(m.name), m.viewTable(cw, ch)
 	case modeSearch:
@@ -362,6 +369,8 @@ func (m Model) helpLine() string {
 	switch m.mode {
 	case modeLoad:
 		hints = [][2]string{{"tab", "complete"}, {"enter", "open"}, {"ctrl+c", "quit"}}
+	case modeOverview:
+		hints = [][2]string{{"enter", "next action"}, {"a", "auto-assign"}, {"3", "components"}, {"5", "check"}, {"tab", "switch"}}
 	case modeTable:
 		hints = [][2]string{{"enter", "assign"}, {"a", "auto-assign"}, {"d", "datasheet"}, {"x", "exclude"}, {"tab", "switch"}}
 	case modeSearch:

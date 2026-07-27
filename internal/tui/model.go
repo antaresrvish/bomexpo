@@ -17,6 +17,7 @@ const (
 	modeSearch
 	modeBoard
 	modeCheck
+	modeOverview
 )
 
 var tabs = []struct {
@@ -24,6 +25,7 @@ var tabs = []struct {
 	label string
 }{
 	{modeLoad, "Load"},
+	{modeOverview, "Overview"},
 	{modeTable, "Components"},
 	{modeBoard, "Board"},
 	{modeCheck, "Check"},
