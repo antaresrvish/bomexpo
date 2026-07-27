@@ -14,6 +14,7 @@ type Item struct {
 	Footprint   string
 	Quantity    int
 	LCSC        string
+	DNP         bool
 }
 
 func (it Item) ID() string {

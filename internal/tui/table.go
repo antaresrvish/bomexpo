@@ -172,6 +172,9 @@ func (m Model) rowView(i int, c cols, sep string, w int) string {
 	it := m.items[i]
 	st := m.stateOf(i)
 	icon, note, noteStyle := stateDecor(st)
+	if it.DNP {
+		note, noteStyle = "do not populate", dimStyle
+	}
 
 	code := it.LCSC
 	if code == "" {

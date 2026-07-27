@@ -58,10 +58,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.boardW, m.boardH = msg.boardW, msg.boardH
 		m.assigned = make([]*lcsc.Part, len(m.items))
 		m.excluded = make([]bool, len(m.items))
+		dnp := 0
+		for i := range m.items {
+			if m.items[i].DNP {
+				m.excluded[i] = true
+				dnp++
+			}
+		}
 		m.mode = modeOverview
 		m.cursor, m.top = 0, 0
 		m.err = ""
 		m.status = fmt.Sprintf("%s · %d components in %d line items", msg.name, len(m.placements), len(m.items))
+		if dnp > 0 {
+			m.status += fmt.Sprintf(" · %d DNP excluded", dnp)
+		}
 		return m, m.prefillCmd()
 
 	case detailDoneMsg:

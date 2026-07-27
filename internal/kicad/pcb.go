@@ -17,6 +17,7 @@ type Component struct {
 	X, Y, Rot    float64
 	Layer        string
 	LCSC         string
+	DNP          bool
 	BodyW, BodyH float64
 }
 
@@ -169,6 +170,12 @@ func parseFootprint(n *node) (Component, bool) {
 		case "layer":
 			if strings.HasPrefix(atom(k, 1), "B.") {
 				c.Layer = "bottom"
+			}
+		case "attr":
+			for _, a := range k.kids[1:] {
+				if a.atom == "dnp" {
+					c.DNP = true
+				}
 			}
 		case "at":
 			c.X = num(atom(k, 1))
@@ -324,14 +331,17 @@ func circleSegments(c Point, r float64) []Segment {
 }
 
 func (p *Project) BOM() []Item {
-	type key struct{ v, f string }
+	type key struct {
+		v, f string
+		dnp  bool
+	}
 	order := []key{}
 	groups := map[key]*Item{}
 	for _, c := range p.Components {
-		k := key{c.Value, c.Footprint}
+		k := key{c.Value, c.Footprint, c.DNP}
 		it, ok := groups[k]
 		if !ok {
-			it = &Item{Value: c.Value, Footprint: c.Footprint}
+			it = &Item{Value: c.Value, Footprint: c.Footprint, DNP: c.DNP}
 			groups[k] = it
 			order = append(order, k)
 		}
