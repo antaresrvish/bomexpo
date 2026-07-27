@@ -10,9 +10,17 @@ import (
 	"bomexpo/internal/tui"
 )
 
+var version = "dev"
+
 func main() {
 	project := flag.String("project", "", "KiCad project folder, .kicad_pro, or .kicad_pcb")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("bomexpo", version)
+		return
+	}
 
 	p := *project
 	if p == "" && flag.NArg() > 0 {
