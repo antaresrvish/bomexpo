@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"bomexpo/internal/export"
 	"bomexpo/internal/kicad"
 	"bomexpo/internal/value"
 )
@@ -136,11 +137,11 @@ func (m *Model) clampScroll() {
 	m.top = clampInt(m.top, 0, max(0, len(m.items)-1))
 }
 
-type cols struct{ ref, val, fp, qty, code, stock, price, ds, note int }
+type cols struct{ ref, val, fp, qty, code, stock, price, ds, rot, note int }
 
 func layoutCols(w int) cols {
-	c := cols{ref: 9, val: 10, fp: 18, qty: 4, code: 9, stock: 9, price: 8, ds: 9}
-	fixed := 2 + c.ref + c.val + c.fp + c.qty + c.code + c.stock + c.price + c.ds
+	c := cols{ref: 9, val: 10, fp: 18, qty: 4, code: 9, stock: 9, price: 8, ds: 9, rot: 5}
+	fixed := 2 + c.ref + c.val + c.fp + c.qty + c.code + c.stock + c.price + c.ds + c.rot
 	c.note = w - fixed - 3*9
 	if c.note < 6 {
 		c.note = 6
@@ -158,7 +159,7 @@ func (m Model) viewTable(w, h int) string {
 	headCells := []string{
 		pad("", 1), pad("REF", c.ref), pad("VALUE", c.val), pad("FOOTPRINT", c.fp),
 		pad("QTY", c.qty), pad("LCSC", c.code), pad("STOCK", c.stock), pad("PRICE", c.price),
-		pad("DATASHEET", c.ds), pad("NOTE", c.note),
+		pad("DATASHEET", c.ds), pad("ROT", c.rot), pad("NOTE", c.note),
 	}
 	head := colHeadStyle.Render(padRender(headCells[0]+" "+strings.Join(headCells[1:], " | "), w))
 	rule := borderStyle.Render(strings.Repeat("─", w))
@@ -179,9 +180,7 @@ func (m Model) rowView(i int, c cols, sep string, w int) string {
 	if it.DNP {
 		note, noteStyle = "do not populate", dimStyle
 	}
-	if it.HasRotOverride {
-		note, noteStyle = fmt.Sprintf("CPL rot +%d°", it.RotOverride), accentStyle
-	}
+	rotText, rotStyle := rotCell(it)
 
 	code := it.LCSC
 	if code == "" {
@@ -206,7 +205,8 @@ func (m Model) rowView(i int, c cols, sep string, w int) string {
 	plain := []string{
 		pad(ref, c.ref), pad(it.Value, c.val), pad(it.Footprint, c.fp),
 		pad(fmt.Sprintf("%d", it.Quantity), c.qty), pad(code, c.code),
-		pad(stock, c.stock), pad(price, c.price), pad(ds, c.ds), pad(note, c.note),
+		pad(stock, c.stock), pad(price, c.price), pad(ds, c.ds),
+		pad(rotText, c.rot), pad(note, c.note),
 	}
 
 	if i == m.cursor {
@@ -223,7 +223,8 @@ func (m Model) rowView(i int, c cols, sep string, w int) string {
 		stockCell(stock, plain[5]),
 		warnStyle.Render(plain[6]),
 		dsCellStyle(ds, plain[7]),
-		noteStyle.Render(plain[8]),
+		rotStyle.Render(plain[8]),
+		noteStyle.Render(plain[9]),
 	}
 	line := icon + " " + strings.Join(colored, sep)
 	return padRender(line, w)
@@ -247,6 +248,13 @@ func (m Model) openDatasheet(idx int) {
 			openExternal(p.Datasheet)
 		}
 	}
+}
+
+func rotCell(it kicad.Item) (string, lipgloss.Style) {
+	if it.HasRotOverride {
+		return fmt.Sprintf("%d°", it.RotOverride), warnStyle
+	}
+	return fmt.Sprintf("%.0f°", export.FamilyOffset(it.Footprint)), okStyle
 }
 
 func codeCell(code, s string) string {

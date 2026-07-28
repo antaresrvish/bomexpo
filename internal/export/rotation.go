@@ -30,6 +30,13 @@ var rotationRules = []struct {
 	{regexp.MustCompile(`(?i)^TSOP-`), 270},
 }
 
+// FamilyOffset is the built-in rotation correction for a footprint family, or
+// 0 when none applies. Exposed for the components table's rotation column.
+func FamilyOffset(footprint string) float64 {
+	off, _ := rotationOffset(footprint)
+	return off
+}
+
 func rotationOffset(footprint string) (float64, bool) {
 	for _, r := range rotationRules {
 		if r.re.MatchString(footprint) {
