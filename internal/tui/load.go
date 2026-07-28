@@ -54,7 +54,7 @@ func (m Model) viewLoad(width, height int) string {
 	header := lipgloss.JoinVertical(lipgloss.Center,
 		logo(),
 		"",
-		subtleStyle.Render("KiCad → LCSC assembly-order console"),
+		subtleStyle.Render("KiCad Fabrication tool"),
 	)
 	form := lipgloss.JoinVertical(lipgloss.Left,
 		labelStyle.Render("Project  ")+m.load.field.View(),
