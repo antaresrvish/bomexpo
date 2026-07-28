@@ -150,7 +150,7 @@ func (m Model) viewCheck(w, h int) string {
 		lines = append(lines, okStyle.Render("✓ every line item is assigned, in stock, and value-matched"))
 	} else {
 		lines = append(lines, subtleStyle.Render("issues to review"))
-		vis := h - 16
+		vis := h - 24
 		if vis < 1 {
 			vis = 1
 		}
@@ -164,6 +164,9 @@ func (m Model) viewCheck(w, h int) string {
 			lines = append(lines, dimStyle.Render(fmt.Sprintf("  … %d more (↓)", len(issues)-end)))
 		}
 	}
+
+	lines = append(lines, "")
+	lines = append(lines, m.preflightAndManifest(w)...)
 
 	lines = append(lines, "", accentStyle.Render("Volume pricing")+dimStyle.Render("  order cost at LCSC quantity breaks"))
 	lines = append(lines, colHeadStyle.Render(pad("  BOARDS", 12)+pad("ORDER COST", 16)+pad("PER BOARD", 14)))
@@ -230,6 +233,80 @@ func rotFamily(fp string) string {
 		return fp[:i]
 	}
 	return fp
+}
+
+// preflightAndManifest renders the pre-flight checklist and the order-package
+// manifest side by side, so the Check page uses its width.
+func (m Model) preflightAndManifest(w int) []string {
+	var un, oos, mm int
+	for i := range m.items {
+		switch m.stateOf(i) {
+		case stUnassigned:
+			un++
+		case stOutOfStock:
+			oos++
+		case stMismatch:
+			mm++
+		}
+	}
+	active := m.activeCount()
+	hasBoard := m.board != nil && !m.board.Empty()
+	cli := kicadCLI() != ""
+
+	chk := func(ok bool, pass, fail string) string {
+		if ok {
+			return okStyle.Render("✓ ") + subtleStyle.Render(pass)
+		}
+		return badStyle.Render("✗ ") + warnStyle.Render(fail)
+	}
+	checklist := []string{
+		accentStyle.Render("Pre-flight"),
+		chk(active > 0 && un == 0, fmt.Sprintf("all %d line items assigned", active), fmt.Sprintf("%d line items need an LCSC part", un)),
+		chk(oos == 0, "all assigned parts in stock", fmt.Sprintf("%d parts out of stock", oos)),
+		chk(mm == 0, "values match the schematic", fmt.Sprintf("%d value mismatches", mm)),
+		chk(hasBoard, "board outline "+boardSize(m.boardW, m.boardH), "no board outline"),
+		chk(cli, "kicad-cli ready for gerbers", "kicad-cli not found — gerbers skipped"),
+	}
+
+	excl := m.excludeSet()
+	placed := 0
+	for _, p := range m.placements {
+		if !excl[p.Designator] {
+			placed++
+		}
+	}
+	gerbers := badStyle.Render("needs kicad-cli")
+	if cli {
+		gerbers = subtleStyle.Render("top · bottom · drill")
+	}
+	man := func(k, v string) string { return dimStyle.Render(pad(k, 14)) + v }
+	manifest := []string{
+		accentStyle.Render("Order package"),
+		man("bom.csv", subtleStyle.Render(fmt.Sprintf("%d line items", active))),
+		man("positions.csv", subtleStyle.Render(fmt.Sprintf("%d placed · %d excluded", placed, len(m.placements)-placed))),
+		man("gerbers", gerbers),
+		man("components", subtleStyle.Render(fmt.Sprintf("%d total", len(m.placements)))),
+	}
+	return twoCol(checklist, manifest, w/2)
+}
+
+func twoCol(left, right []string, leftW int) []string {
+	n := len(left)
+	if len(right) > n {
+		n = len(right)
+	}
+	out := make([]string, n)
+	for i := 0; i < n; i++ {
+		l, r := "", ""
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(right) {
+			r = right[i]
+		}
+		out[i] = padRender(l, leftW) + "  " + r
+	}
+	return out
 }
 
 func colorIssue(st itemState, label string) string {
