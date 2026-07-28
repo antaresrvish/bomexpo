@@ -35,3 +35,37 @@ brews:
       bin.install "bomexpo"
     test: |
       system "#{bin}/bomexpo", "--version"
+
+winget:
+  - name: bomexpo
+    publisher: antaresrvish
+    short_description: "KiCad fabrication tool: assign LCSC parts and export a JLCPCB order from a .kicad_pcb"
+    license: MIT
+    homepage: "https://github.com/antaresrvish/bomexpo"
+    repository:
+      owner: antaresrvish
+      name: winget-pkgs
+      branch: "bomexpo-{{.Version}}"
+      token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+
+aurs:
+  - name: bomexpo-bin
+    homepage: "https://github.com/antaresrvish/bomexpo"
+    description: "KiCad fabrication tool: assign LCSC parts and export a JLCPCB order from a .kicad_pcb"
+    maintainers:
+      - "antaresrvish <antaresrvish@users.noreply.github.com>"
+    license: MIT
+    private_key: "{{ .Env.AUR_KEY }}"
+    git_url: "ssh://aur@aur.archlinux.org/bomexpo-bin.git"
+    provides:
+      - bomexpo
+    conflicts:
+      - bomexpo
+    package: |-
+      install -Dm755 "./bomexpo" "${pkgdir}/usr/bin/bomexpo"
