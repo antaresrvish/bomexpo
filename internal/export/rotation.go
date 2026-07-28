@@ -64,19 +64,30 @@ type RotationFix struct {
 	Designator string
 	Footprint  string
 	From, To   float64
+	Manual     bool
 }
 
-// RotationFixes lists the placements whose angle the corrector changes, so the
-// UI can show exactly what leaves in the CPL instead of correcting silently.
-func RotationFixes(placements []kicad.Placement, exclude map[string]bool) []RotationFix {
+// appliedRot is the angle written to the CPL: a manual per-designator override
+// (applied literally) when present, otherwise the footprint-family correction.
+func appliedRot(footprint string, rot float64, bottom bool, override map[string]int, ref string) (float64, bool) {
+	if off, ok := override[ref]; ok {
+		return normDeg(rot + float64(off)), true
+	}
+	return correctRotation(footprint, rot, bottom), false
+}
+
+// RotationFixes lists the placements whose angle changes in the CPL — via the
+// family correction or a manual override — so the UI can show them instead of
+// correcting silently.
+func RotationFixes(placements []kicad.Placement, exclude map[string]bool, override map[string]int) []RotationFix {
 	var out []RotationFix
 	for _, p := range placements {
 		if exclude[p.Designator] {
 			continue
 		}
-		to := correctRotation(p.Package, p.Rotation, p.Layer == "bottom")
-		if math.Abs(to-normDeg(p.Rotation)) > 1e-6 {
-			out = append(out, RotationFix{p.Designator, p.Package, p.Rotation, to})
+		to, manual := appliedRot(p.Package, p.Rotation, p.Layer == "bottom", override, p.Designator)
+		if manual || math.Abs(to-normDeg(p.Rotation)) > 1e-6 {
+			out = append(out, RotationFix{p.Designator, p.Package, p.Rotation, to, manual})
 		}
 	}
 	return out

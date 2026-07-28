@@ -106,11 +106,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = "write failed: " + msg.err.Error()
 		} else {
 			r := msg.res
-			if r.CodesUpdated+r.CodesInserted+r.Excluded+r.Included == 0 {
+			if r.CodesUpdated+r.CodesInserted+r.Excluded+r.Included+r.RotSet+r.RotCleared == 0 {
 				m.flash = "✓ " + filepath.Base(msg.path) + " already up to date"
 			} else {
-				m.flash = fmt.Sprintf("✓ saved %s — %d codes, %d excluded, %d re-included",
-					filepath.Base(msg.path), r.CodesUpdated+r.CodesInserted, r.Excluded, r.Included)
+				m.flash = fmt.Sprintf("✓ saved %s — %d code, %d exclude, %d rotation changes",
+					filepath.Base(msg.path), r.CodesUpdated+r.CodesInserted, r.Excluded+r.Included, r.RotSet+r.RotCleared)
 			}
 		}
 		return m, nil
@@ -423,7 +423,7 @@ func (m Model) helpLine() string {
 	case modeOverview:
 		hints = [][2]string{{"enter", "next"}, {"a", "auto-assign"}, {"r", "refresh"}, {"w", "save"}, {"tab", "switch"}}
 	case modeTable:
-		hints = [][2]string{{"enter", "assign"}, {"a", "auto-assign"}, {"r", "refresh"}, {"w", "save"}, {"x", "exclude"}, {"tab", "switch"}}
+		hints = [][2]string{{"enter", "assign"}, {"a", "auto-assign"}, {"o", "rotate"}, {"w", "save"}, {"x", "exclude"}, {"tab", "switch"}}
 	case modeSearch:
 		hints = [][2]string{{"type", "search"}, {"↑↓", "results"}, {"enter", "pick"}, {"^f/^t/^s", "filters"}, {"esc", "back"}}
 	case modeBoard:

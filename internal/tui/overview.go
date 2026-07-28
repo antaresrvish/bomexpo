@@ -104,7 +104,7 @@ func (m Model) viewOverview(w, h int) string {
 	if !complete {
 		costStr += dimStyle.Render(" *")
 	}
-	nRot := len(export.RotationFixes(m.placements, m.excludeSet()))
+	nRot := len(export.RotationFixes(m.placements, m.excludeSet(), m.rotOverrideMap()))
 	order := lipgloss.JoinVertical(lipgloss.Left,
 		accentStyle.Render("ORDER"),
 		kv("line items", fmt.Sprintf("%d", len(m.items))),

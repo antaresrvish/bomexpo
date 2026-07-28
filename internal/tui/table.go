@@ -60,6 +60,8 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.startAutoAssign()
 	case "r":
 		return m.refreshCmd()
+	case "o":
+		return m.cycleRotOverride()
 	case "w":
 		return m, m.saveCmd()
 	case "d":
@@ -176,6 +178,9 @@ func (m Model) rowView(i int, c cols, sep string, w int) string {
 	icon, note, noteStyle := stateDecor(st)
 	if it.DNP {
 		note, noteStyle = "do not populate", dimStyle
+	}
+	if it.HasRotOverride {
+		note, noteStyle = fmt.Sprintf("CPL rot +%d°", it.RotOverride), accentStyle
 	}
 
 	code := it.LCSC

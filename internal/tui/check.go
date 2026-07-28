@@ -178,9 +178,18 @@ func (m Model) viewCheck(w, h int) string {
 			subtleStyle.Render(fmt.Sprintf("$%.4f", tot/float64(n))))
 	}
 
-	if fixes := export.RotationFixes(m.placements, m.excludeSet()); len(fixes) > 0 {
-		lines = append(lines, "", accentStyle.Render("JLCPCB rotation")+
-			dimStyle.Render(fmt.Sprintf("  %d parts realigned in the CPL for the assembler", len(fixes))))
+	if fixes := export.RotationFixes(m.placements, m.excludeSet(), m.rotOverrideMap()); len(fixes) > 0 {
+		manual := 0
+		for _, f := range fixes {
+			if f.Manual {
+				manual++
+			}
+		}
+		hdr := fmt.Sprintf("  %d parts realigned in the CPL", len(fixes))
+		if manual > 0 {
+			hdr += fmt.Sprintf(" · %d manual override", manual)
+		}
+		lines = append(lines, "", accentStyle.Render("JLCPCB rotation")+dimStyle.Render(hdr))
 		norm := func(d float64) float64 {
 			for d < 0 {
 				d += 360
@@ -235,6 +244,6 @@ func colorIssue(st itemState, label string) string {
 	return label
 }
 
-func exportZip(path string, items []kicad.Item, placements []kicad.Placement, pcbPath string, exclude map[string]bool) error {
-	return export.WriteOrderZip(path, items, placements, pcbPath, exclude)
+func exportZip(path string, items []kicad.Item, placements []kicad.Placement, pcbPath string, exclude map[string]bool, rotOverride map[string]int) error {
+	return export.WriteOrderZip(path, items, placements, pcbPath, exclude, rotOverride)
 }

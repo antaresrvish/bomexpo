@@ -215,6 +215,7 @@ func (m Model) excludeSet() map[string]bool {
 
 func (m Model) exportCmd(path string) tea.Cmd {
 	excl := m.excludeSet()
+	rot := m.rotOverrideMap()
 	var items []kicad.Item
 	for i, it := range m.items {
 		if i < len(m.excluded) && m.excluded[i] {
@@ -225,9 +226,50 @@ func (m Model) exportCmd(path string) tea.Cmd {
 	placements := m.placements
 	pcb := m.pcbPath
 	return func() tea.Msg {
-		err := exportZip(path, items, placements, pcb, excl)
+		err := exportZip(path, items, placements, pcb, excl, rot)
 		return exportDoneMsg{path: path, err: err}
 	}
+}
+
+func (m Model) rotOverrideMap() map[string]int {
+	out := map[string]int{}
+	for _, it := range m.items {
+		if !it.HasRotOverride {
+			continue
+		}
+		for _, d := range it.Designators {
+			out[d] = it.RotOverride
+		}
+	}
+	return out
+}
+
+// cycleRotOverride steps the selected line item's CPL rotation override
+// through none → 0 → 90 → 180 → 270 → none.
+func (m Model) cycleRotOverride() (tea.Model, tea.Cmd) {
+	i := m.cursor
+	if i < 0 || i >= len(m.items) {
+		return m, nil
+	}
+	it := m.items[i]
+	switch {
+	case !it.HasRotOverride:
+		m.items[i].HasRotOverride, m.items[i].RotOverride = true, 0
+	case it.RotOverride == 0:
+		m.items[i].RotOverride = 90
+	case it.RotOverride == 90:
+		m.items[i].RotOverride = 180
+	case it.RotOverride == 180:
+		m.items[i].RotOverride = 270
+	default:
+		m.items[i].HasRotOverride, m.items[i].RotOverride = false, 0
+	}
+	if m.items[i].HasRotOverride {
+		m.flash = fmt.Sprintf("%s CPL rotation override → +%d° (save with w)", it.ID(), m.items[i].RotOverride)
+	} else {
+		m.flash = fmt.Sprintf("%s rotation override cleared — back to auto", it.ID())
+	}
+	return m, nil
 }
 
 type savedMsg struct {
@@ -242,6 +284,7 @@ func (m Model) saveCmd() tea.Cmd {
 	}
 	codes := map[string]string{}
 	exclude := map[string]bool{}
+	rot := map[string]*int{}
 	for i, it := range m.items {
 		if it.LCSC != "" {
 			for _, d := range it.Designators {
@@ -252,13 +295,19 @@ func (m Model) saveCmd() tea.Cmd {
 			continue // DNP exclusion is KiCad's own dnp flag, left untouched
 		}
 		on := i < len(m.excluded) && m.excluded[i]
+		var ov *int
+		if it.HasRotOverride {
+			v := it.RotOverride
+			ov = &v
+		}
 		for _, d := range it.Designators {
 			exclude[d] = on
+			rot[d] = ov
 		}
 	}
 	pcb := m.pcbPath
 	return func() tea.Msg {
-		res, err := kicad.WriteBack(pcb, codes, exclude)
+		res, err := kicad.WriteBack(pcb, codes, exclude, rot)
 		return savedMsg{path: pcb, res: res, err: err}
 	}
 }

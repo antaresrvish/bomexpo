@@ -8,14 +8,16 @@ import (
 )
 
 type Item struct {
-	Designators []string
-	Bases       []string
-	Value       string
-	Footprint   string
-	Quantity    int
-	LCSC        string
-	DNP         bool
-	ExcludeBOM  bool
+	Designators    []string
+	Bases          []string
+	Value          string
+	Footprint      string
+	Quantity       int
+	LCSC           string
+	DNP            bool
+	ExcludeBOM     bool
+	RotOverride    int
+	HasRotOverride bool
 }
 
 func (it Item) ID() string {

@@ -44,12 +44,30 @@ func TestRotationFixesReportsOnlyChanged(t *testing.T) {
 		{Designator: "Q1", Package: "SOT-23", Rotation: 0, Layer: "top"},
 		{Designator: "U2", Package: "QFN-56-1EP", Rotation: 0, Layer: "top"},
 	}
-	fixes := RotationFixes(pl, map[string]bool{"Q1": true})
+	fixes := RotationFixes(pl, map[string]bool{"Q1": true}, nil)
 	if len(fixes) != 1 {
 		t.Fatalf("want 1 fix (U1 only; R1/U2 unchanged, Q1 excluded), got %d: %+v", len(fixes), fixes)
 	}
 	if fixes[0].Designator != "U1" || fixes[0].To != 270 {
 		t.Errorf("got %+v, want U1 -> 270", fixes[0])
+	}
+}
+
+func TestRotationFixesOverride(t *testing.T) {
+	pl := []kicad.Placement{
+		{Designator: "J1", Package: "USB_C_Receptacle", Rotation: 0, Layer: "top"}, // no auto correction
+		{Designator: "U1", Package: "SOIC-8", Rotation: 0, Layer: "top"},           // auto 270
+	}
+	fixes := RotationFixes(pl, nil, map[string]int{"J1": 90})
+	got := map[string]RotationFix{}
+	for _, f := range fixes {
+		got[f.Designator] = f
+	}
+	if f, ok := got["J1"]; !ok || !f.Manual || f.To != 90 {
+		t.Errorf("J1 override: %+v ok=%v", f, ok)
+	}
+	if f, ok := got["U1"]; !ok || f.Manual || f.To != 270 {
+		t.Errorf("U1 auto: %+v ok=%v", f, ok)
 	}
 }
 

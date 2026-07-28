@@ -40,7 +40,7 @@ func TestWriteBackCodes(t *testing.T) {
 	if err := os.WriteFile(pcb, []byte(miniPCB), 0644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := WriteBack(pcb, map[string]string{"R1": "C111", "C7": "C222", "Q9": "C999"}, nil)
+	res, err := WriteBack(pcb, map[string]string{"R1": "C111", "C7": "C222", "Q9": "C999"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestWriteBackNoChange(t *testing.T) {
 	pcb := filepath.Join(t.TempDir(), "b.kicad_pcb")
 	os.WriteFile(pcb, []byte(miniPCB), 0644)
 	before := readFile(t, pcb)
-	res, err := WriteBack(pcb, map[string]string{"R1": "C1"}, nil)
+	res, err := WriteBack(pcb, map[string]string{"R1": "C1"}, nil, nil)
 	if err != nil || res != (WriteResult{}) {
 		t.Fatalf("want no-op, got %+v err=%v", res, err)
 	}
@@ -76,7 +76,7 @@ func TestWriteBackExclude(t *testing.T) {
 	pcb := filepath.Join(t.TempDir(), "b.kicad_pcb")
 	os.WriteFile(pcb, []byte(miniPCB), 0644)
 
-	res, err := WriteBack(pcb, nil, map[string]bool{"R1": true})
+	res, err := WriteBack(pcb, nil, map[string]bool{"R1": true}, nil)
 	if err != nil || res.Excluded != 1 {
 		t.Fatalf("exclude: excluded=%d err=%v", res.Excluded, err)
 	}
@@ -98,12 +98,12 @@ func TestWriteBackExclude(t *testing.T) {
 	}
 
 	// idempotent
-	if res, _ := WriteBack(pcb, nil, map[string]bool{"R1": true}); res != (WriteResult{}) {
+	if res, _ := WriteBack(pcb, nil, map[string]bool{"R1": true}, nil); res != (WriteResult{}) {
 		t.Errorf("second exclude should be a no-op, got %+v", res)
 	}
 
 	// re-include drops the tokens
-	res, err = WriteBack(pcb, nil, map[string]bool{"R1": false})
+	res, err = WriteBack(pcb, nil, map[string]bool{"R1": false}, nil)
 	if err != nil || res.Included != 1 {
 		t.Fatalf("re-include: included=%d err=%v", res.Included, err)
 	}
@@ -113,6 +113,43 @@ func TestWriteBackExclude(t *testing.T) {
 	}
 	if !strings.Contains(s, "(attr smd)") {
 		t.Errorf("attr not restored to (attr smd):\n%s", s)
+	}
+}
+
+func TestWriteBackRotOverride(t *testing.T) {
+	pcb := filepath.Join(t.TempDir(), "b.kicad_pcb")
+	os.WriteFile(pcb, []byte(miniPCB), 0644)
+	set := func(v int) *int { return &v }
+
+	res, err := WriteBack(pcb, nil, nil, map[string]*int{"C7": set(90)})
+	if err != nil || res.RotSet != 1 {
+		t.Fatalf("set: RotSet=%d err=%v", res.RotSet, err)
+	}
+	if !strings.Contains(readFile(t, pcb), `(property "bomexpo_rot" "90")`) {
+		t.Fatalf("override not written:\n%s", readFile(t, pcb))
+	}
+	p, _ := LoadProject(pcb)
+	for _, c := range p.Components {
+		if c.Ref == "C7" && (!c.HasRotOverride || c.RotOverride != 90) {
+			t.Errorf("C7 override not read back: has=%v val=%d", c.HasRotOverride, c.RotOverride)
+		}
+	}
+	if res, _ := WriteBack(pcb, nil, nil, map[string]*int{"C7": set(180)}); res.RotSet != 1 {
+		t.Errorf("update: RotSet=%d", res.RotSet)
+	}
+	if !strings.Contains(readFile(t, pcb), `(property "bomexpo_rot" "180")`) {
+		t.Error("override not updated to 180")
+	}
+	res, _ = WriteBack(pcb, nil, nil, map[string]*int{"C7": nil})
+	if res.RotCleared != 1 {
+		t.Errorf("clear: RotCleared=%d", res.RotCleared)
+	}
+	s := readFile(t, pcb)
+	if strings.Contains(s, "bomexpo_rot") {
+		t.Errorf("override not removed:\n%s", s)
+	}
+	if _, err := parseSexp(s); err != nil {
+		t.Fatalf("no longer parses after removal: %v", err)
 	}
 }
 

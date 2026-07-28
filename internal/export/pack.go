@@ -12,7 +12,7 @@ import (
 	"bomexpo/internal/kicad"
 )
 
-func WriteOrderZip(outPath string, items []kicad.Item, placements []kicad.Placement, pcbPath string, exclude map[string]bool) error {
+func WriteOrderZip(outPath string, items []kicad.Item, placements []kicad.Placement, pcbPath string, exclude map[string]bool, rotOverride map[string]int) error {
 	full, err := kicad.ExpandPath(outPath)
 	if err != nil {
 		return err
@@ -37,7 +37,7 @@ func WriteOrderZip(outPath string, items []kicad.Item, placements []kicad.Placem
 		}
 	}
 	if len(cpl) > 0 {
-		if err := writeCPL(zw, cpl, exclude); err != nil {
+		if err := writeCPL(zw, cpl, exclude, rotOverride); err != nil {
 			return err
 		}
 	}
@@ -82,7 +82,7 @@ func writeBOM(zw *zip.Writer, items []kicad.Item) error {
 	return cw.Error()
 }
 
-func writeCPL(zw *zip.Writer, placements []kicad.Placement, exclude map[string]bool) error {
+func writeCPL(zw *zip.Writer, placements []kicad.Placement, exclude map[string]bool, rotOverride map[string]int) error {
 	w, err := zw.Create("positions.csv")
 	if err != nil {
 		return err
@@ -93,7 +93,7 @@ func writeCPL(zw *zip.Writer, placements []kicad.Placement, exclude map[string]b
 		if exclude[p.Designator] {
 			continue
 		}
-		rot := correctRotation(p.Package, p.Rotation, p.Layer == "bottom")
+		rot, _ := appliedRot(p.Package, p.Rotation, p.Layer == "bottom", rotOverride, p.Designator)
 		cw.Write([]string{
 			p.Designator,
 			strconv.FormatFloat(p.X, 'f', 4, 64),

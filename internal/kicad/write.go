@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -13,6 +14,8 @@ type WriteResult struct {
 	CodesInserted int
 	Excluded      int
 	Included      int
+	RotSet        int
+	RotCleared    int
 }
 
 // WriteBack writes bomexpo's work back into the .kicad_pcb, keyed by reference
@@ -22,8 +25,9 @@ type WriteResult struct {
 // properties are updated in place, missing ones get a minimal property line,
 // and the (attr …) list is rebuilt to add or drop the exclude tokens.
 // Everything else is preserved byte-for-byte and the result is re-parsed
-// before it replaces the original.
-func WriteBack(pcbPath string, codes map[string]string, exclude map[string]bool) (WriteResult, error) {
+// A ref in `rot` maps to a rotation-override offset: a non-nil value writes a
+// bomexpo_rot property, a nil value removes it. before it replaces the original.
+func WriteBack(pcbPath string, codes map[string]string, exclude map[string]bool, rot map[string]*int) (WriteResult, error) {
 	var res WriteResult
 	data, err := os.ReadFile(pcbPath)
 	if err != nil {
@@ -67,6 +71,24 @@ func WriteBack(pcbPath string, codes map[string]string, exclude map[string]bool)
 				} else {
 					res.Included++
 				}
+			}
+		}
+		if want, ok := rot[ref]; ok {
+			p := namedProp(n, "bomexpo_rot")
+			switch {
+			case want != nil && p == nil:
+				if a := anchorProp(n); a != nil {
+					edits = append(edits, edit{a.end, a.end, "\n\t\t(property \"bomexpo_rot\" " + quoteAtom(strconv.Itoa(*want)) + ")"})
+					res.RotSet++
+				}
+			case want != nil && p != nil:
+				if v := p.kids[2]; v.atom != strconv.Itoa(*want) {
+					edits = append(edits, edit{v.start, v.end, quoteAtom(strconv.Itoa(*want))})
+					res.RotSet++
+				}
+			case want == nil && p != nil:
+				edits = append(edits, edit{lineStart(src, p.start), p.end, ""})
+				res.RotCleared++
 			}
 		}
 	}
@@ -141,6 +163,28 @@ func attrEdit(fp *node, want bool) (at, end int, text string, changed bool) {
 	}
 	rebuilt += ")"
 	return attr.start, attr.end, rebuilt, true
+}
+
+func namedProp(fp *node, name string) *node {
+	for _, k := range fp.kids {
+		if k.head() == "property" && len(k.kids) >= 3 && k.kids[1].atom == name {
+			return k
+		}
+	}
+	return nil
+}
+
+// lineStart returns the index of the newline that begins the line holding pos,
+// so a whole property line (leading indent included) can be spliced out.
+func lineStart(src string, pos int) int {
+	i := pos
+	for i > 0 && (src[i-1] == ' ' || src[i-1] == '\t') {
+		i--
+	}
+	if i > 0 && src[i-1] == '\n' {
+		i--
+	}
+	return i
 }
 
 func propValue(fp *node, name string) string {

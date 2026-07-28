@@ -11,15 +11,17 @@ import (
 )
 
 type Component struct {
-	Ref          string
-	Value        string
-	Footprint    string
-	X, Y, Rot    float64
-	Layer        string
-	LCSC         string
-	DNP          bool
-	ExcludeBOM   bool
-	BodyW, BodyH float64
+	Ref            string
+	Value          string
+	Footprint      string
+	X, Y, Rot      float64
+	Layer          string
+	LCSC           string
+	DNP            bool
+	ExcludeBOM     bool
+	RotOverride    int
+	HasRotOverride bool
+	BodyW, BodyH   float64
 }
 
 type Project struct {
@@ -197,6 +199,11 @@ func parseFootprint(n *node) (Component, bool) {
 				if val != "" {
 					c.LCSC = val
 				}
+			case name == "bomexpo_rot":
+				if n, err := strconv.Atoi(strings.TrimSpace(val)); err == nil {
+					c.RotOverride = n
+					c.HasRotOverride = true
+				}
 			}
 		case "pad":
 			at, sz := child(k, "at"), child(k, "size")
@@ -356,6 +363,10 @@ func (p *Project) BOM() []Item {
 		it.Quantity++
 		if it.LCSC == "" && c.LCSC != "" {
 			it.LCSC = c.LCSC
+		}
+		if !it.HasRotOverride && c.HasRotOverride {
+			it.HasRotOverride = true
+			it.RotOverride = c.RotOverride
 		}
 	}
 	items := make([]Item, 0, len(order))
