@@ -458,7 +458,7 @@ func (m Model) compactOverview(sideW, avail int) []string {
 	nRot := len(export.RotationFixes(m.placements, m.excludeSet(), m.rotOverrideMap()))
 	summary := dimStyle.Render(fmt.Sprintf("excluded %d · dnp %d · rot %d", m.excludedCount(), m.dnpCount(), nRot))
 
-	lines := strings.Split(grid, "\n")
+	lines := append([]string{accentStyle.Render("Overview")}, strings.Split(grid, "\n")...)
 	lines = append(lines, summary)
 	if budget := avail - len(lines); budget >= 3 {
 		lines = append(lines, m.selectedInspector(sideW, budget)...)
