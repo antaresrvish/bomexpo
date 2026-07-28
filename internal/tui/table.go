@@ -501,6 +501,9 @@ func (m Model) selectedInspector(sideW, budget int) []string {
 			kv("stock", okStyle.Render(groupThousands(p.Stock))),
 			kv("price", warnStyle.Render(p.PriceLabel())),
 		)
+		if p.MinBuy > 1 {
+			rows = append(rows, kv("moq", subtleStyle.Render(fmt.Sprintf("%d", p.MinBuy))))
+		}
 		if s := p.Specs(); s != "" {
 			rows = append(rows, kv("specs", dimStyle.Render(s)))
 		}

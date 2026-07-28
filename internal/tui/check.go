@@ -116,6 +116,8 @@ func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// costAt totals the order for a given board count, buying at least each part's
+// LCSC minimum order quantity.
 func (m Model) costAt(boards int) (float64, bool) {
 	total, complete := 0.0, true
 	for i, it := range m.items {
@@ -127,14 +129,39 @@ func (m Model) costAt(boards int) (float64, bool) {
 			complete = false
 			continue
 		}
-		qty := it.Quantity * boards
-		if u, ok := p.PriceAt(qty); ok {
-			total += u * float64(qty)
+		order := it.Quantity * boards
+		if p.MinBuy > order {
+			order = p.MinBuy
+		}
+		if u, ok := p.PriceAt(order); ok {
+			total += u * float64(order)
 		} else {
 			complete = false
 		}
 	}
 	return total, complete
+}
+
+// moqImpact reports how many parts must be over-bought to hit their LCSC
+// minimum order at the given board count, and the extra spend it costs.
+func (m Model) moqImpact(boards int) (parts int, extra float64) {
+	for i, it := range m.items {
+		if i < len(m.excluded) && m.excluded[i] {
+			continue
+		}
+		p := m.assigned[i]
+		if p == nil {
+			continue
+		}
+		need := it.Quantity * boards
+		if p.MinBuy > need {
+			if u, ok := p.PriceAt(p.MinBuy); ok {
+				extra += u * float64(p.MinBuy-need)
+				parts++
+			}
+		}
+	}
+	return
 }
 
 func (m Model) viewCheck(w, h int) string {
@@ -179,6 +206,9 @@ func (m Model) viewCheck(w, h int) string {
 		lines = append(lines, "  "+pad(fmt.Sprintf("%d", n), 10)+
 			okStyle.Render(pad(fmt.Sprintf("$%.2f", tot), 14))+mark+"  "+
 			subtleStyle.Render(fmt.Sprintf("$%.4f", tot/float64(n))))
+	}
+	if n, extra := m.moqImpact(1); n > 0 {
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d parts hit their LCSC minimum order — +$%.2f extra stock at 1 board", n, extra)))
 	}
 
 	if fixes := export.RotationFixes(m.placements, m.excludeSet(), m.rotOverrideMap()); len(fixes) > 0 {
