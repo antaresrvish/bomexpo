@@ -420,6 +420,9 @@ func layerFunc(layer string) string {
 	}
 }
 
+// RefLess orders reference designators naturally (R2 before R10).
+func RefLess(a, b string) bool { return refLess(a, b) }
+
 func refLess(a, b string) bool {
 	pa, na := splitRef(a)
 	pb, nb := splitRef(b)

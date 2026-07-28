@@ -71,6 +71,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.mode = modeOverview
 		m.cursor, m.top = 0, 0
+		m.sort, m.sortAsc = sortNone, false
 		m.err = ""
 		m.status = fmt.Sprintf("%s · %d components in %d line items", msg.name, len(m.placements), len(m.items))
 		m.flash = fmt.Sprintf("loaded %s — %d line items", msg.name, len(m.items))
@@ -308,28 +309,49 @@ func projSuffix(name string) string {
 }
 
 func (m Model) tabBar() string {
-	segs := []string{tabBrand.Render("bomexpo")}
-	for i, t := range tabs {
+	brand := tabBrand.Render("bomexpo")
+	var segs []string
+	for _, t := range tabs {
 		active := t.mode == m.mode || (m.mode == modeSearch && t.mode == modeTable)
 		st := tabInactive
 		if active {
 			st = tabActive
 		}
-		segs = append(segs, st.Render(fmt.Sprintf("%d %s", i+1, t.label)))
+		segs = append(segs, st.Render(t.label))
 	}
-	left := strings.Join(segs, "")
+	tabsStr := strings.Join(segs, "")
 
 	right := ""
 	if len(m.items) > 0 {
 		a, wn := m.counts()
-		right = okStyle.Render(fmt.Sprintf(" %d/%d ", a, m.activeCount())) +
-			warnBadge(wn)
+		right = okStyle.Render(fmt.Sprintf(" %d/%d ", a, m.activeCount())) + warnBadge(wn)
 	}
-	gap := m.w - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 0 {
-		gap = 0
+
+	bw, tw, rw := lipgloss.Width(brand), lipgloss.Width(tabsStr), lipgloss.Width(right)
+	leftPad := (m.w-tw)/2 - bw
+	if leftPad < 1 {
+		leftPad = 1
 	}
-	return left + spaces(gap) + right
+	rightPad := m.w - bw - leftPad - tw - rw
+	if rightPad < 1 {
+		rightPad = 1
+	}
+	return brand + spaces(leftPad) + tabsStr + spaces(rightPad) + right
+}
+
+// tabStart is the x column where the (centered) tab strip begins; tabBar and
+// tabAtX must agree on it.
+func (m Model) tabStart() int {
+	bw := lipgloss.Width(tabBrand.Render("bomexpo"))
+	var segs []string
+	for _, t := range tabs {
+		segs = append(segs, tabInactive.Render(t.label))
+	}
+	leftPad := (m.w-lipgloss.Width(strings.Join(segs, "")))/2 - bw
+	if leftPad < 1 {
+		leftPad = 1
+	}
+	return bw + leftPad
 }
 
 func warnBadge(n int) string {
@@ -340,9 +362,9 @@ func warnBadge(n int) string {
 }
 
 func (m Model) tabAtX(x int) (mode, bool) {
-	cur := lipgloss.Width(tabBrand.Render("bomexpo"))
-	for i, t := range tabs {
-		w := lipgloss.Width(tabInactive.Render(fmt.Sprintf("%d %s", i+1, t.label)))
+	cur := m.tabStart()
+	for _, t := range tabs {
+		w := lipgloss.Width(tabInactive.Render(t.label))
 		if x >= cur && x < cur+w {
 			return t.mode, true
 		}
@@ -383,6 +405,9 @@ func (m Model) infoStats() string {
 	parts = append(parts, seg("assigned", fmt.Sprintf("%d/%d", a, m.activeCount())))
 	if ex := m.excludedCount(); ex > 0 {
 		parts = append(parts, seg("excluded", fmt.Sprintf("%d", ex)))
+	}
+	if dnp := m.dnpCount(); dnp > 0 {
+		parts = append(parts, seg("dnp", fmt.Sprintf("%d", dnp)))
 	}
 	cost, complete := m.totalCost()
 	costStr := fmt.Sprintf("$%.2f", cost)

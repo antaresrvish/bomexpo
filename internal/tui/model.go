@@ -2,10 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
+	"bomexpo/internal/export"
 	"bomexpo/internal/kicad"
 	"bomexpo/internal/lcsc"
 	"bomexpo/internal/value"
@@ -63,12 +66,29 @@ type Model struct {
 	cursor int
 	top    int
 
+	sort    sortKey
+	sortAsc bool
+
 	autoRemaining int
 	autoOK        int
 
 	refreshRemaining int
 	refreshOK        int
 }
+
+type sortKey int
+
+const (
+	sortNone sortKey = iota
+	sortRef
+	sortVal
+	sortFp
+	sortQty
+	sortCode
+	sortStock
+	sortPrice
+	sortRot
+)
 
 func New(project string) Model {
 	sp := spinner.New()
@@ -262,14 +282,102 @@ func (m Model) cycleRotOverride() (tea.Model, tea.Cmd) {
 	case it.RotOverride == 180:
 		m.items[i].RotOverride = 270
 	default:
-		m.items[i].HasRotOverride, m.items[i].RotOverride = false, 0
+		m.items[i].RotOverride = 0 // wrap; O resets to auto
 	}
-	if m.items[i].HasRotOverride {
-		m.flash = fmt.Sprintf("%s CPL rotation override → +%d° (save with w)", it.ID(), m.items[i].RotOverride)
-	} else {
-		m.flash = fmt.Sprintf("%s rotation override cleared — back to auto", it.ID())
-	}
+	m.flash = fmt.Sprintf("%s CPL rotation → +%d° (o cycles · O resets · w saves)", it.ID(), m.items[i].RotOverride)
 	return m, nil
+}
+
+func (m Model) resetRotOverride() (tea.Model, tea.Cmd) {
+	i := m.cursor
+	if i < 0 || i >= len(m.items) {
+		return m, nil
+	}
+	if !m.items[i].HasRotOverride {
+		m.flash = fmt.Sprintf("%s already on auto rotation", m.items[i].ID())
+		return m, nil
+	}
+	m.items[i].HasRotOverride, m.items[i].RotOverride = false, 0
+	m.flash = fmt.Sprintf("%s rotation reset to auto (save with w)", m.items[i].ID())
+	return m, nil
+}
+
+func (m Model) dnpCount() int {
+	n := 0
+	for _, it := range m.items {
+		if it.DNP {
+			n++
+		}
+	}
+	return n
+}
+
+func (m Model) stockOf(i int) int {
+	if p := m.assigned[i]; p != nil {
+		return p.Stock
+	}
+	return -1
+}
+
+func (m Model) priceOf(i int) float64 {
+	if p := m.assigned[i]; p != nil {
+		if u, ok := p.UnitPrice(); ok {
+			return u
+		}
+	}
+	return -1
+}
+
+func (m Model) rotOf(i int) float64 {
+	if m.items[i].HasRotOverride {
+		return float64(m.items[i].RotOverride)
+	}
+	return export.FamilyOffset(m.items[i].Footprint)
+}
+
+func (m Model) itemLess(i, j int) bool {
+	a, b := m.items[i], m.items[j]
+	switch m.sort {
+	case sortVal:
+		return strings.ToLower(a.Value) < strings.ToLower(b.Value)
+	case sortFp:
+		return strings.ToLower(a.Footprint) < strings.ToLower(b.Footprint)
+	case sortQty:
+		return a.Quantity < b.Quantity
+	case sortCode:
+		return a.LCSC < b.LCSC
+	case sortStock:
+		return m.stockOf(i) < m.stockOf(j)
+	case sortPrice:
+		return m.priceOf(i) < m.priceOf(j)
+	case sortRot:
+		return m.rotOf(i) < m.rotOf(j)
+	}
+	return kicad.RefLess(a.ID(), b.ID())
+}
+
+// sorted reorders the line items (and the parallel assigned/excluded slices) by
+// the active column and direction, keeping them index-aligned.
+func (m Model) sorted() Model {
+	perm := make([]int, len(m.items))
+	for i := range perm {
+		perm[i] = i
+	}
+	sort.SliceStable(perm, func(a, b int) bool {
+		if m.sortAsc {
+			return m.itemLess(perm[a], perm[b])
+		}
+		return m.itemLess(perm[b], perm[a])
+	})
+	ni := make([]kicad.Item, len(m.items))
+	na := make([]*lcsc.Part, len(m.assigned))
+	ne := make([]bool, len(m.excluded))
+	for n, o := range perm {
+		ni[n], na[n], ne[n] = m.items[o], m.assigned[o], m.excluded[o]
+	}
+	m.items, m.assigned, m.excluded = ni, na, ne
+	m.cursor, m.top = 0, 0
+	return m
 }
 
 type savedMsg struct {

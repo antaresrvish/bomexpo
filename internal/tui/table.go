@@ -63,6 +63,8 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.refreshCmd()
 	case "o":
 		return m.cycleRotOverride()
+	case "O":
+		return m.resetRotOverride()
 	case "w":
 		return m, m.saveCmd()
 	case "d":
@@ -104,6 +106,17 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 			m.cursor = min(len(m.items)-1, m.cursor+1)
 		}
 		m.clampScroll()
+		return m, nil
+	}
+	if click && ms.Button == tea.MouseLeft && ms.Y == 2 {
+		if k, ok := colSortKey(layoutCols(m.contentW()), ms.X); ok {
+			if m.sort == k {
+				m.sortAsc = !m.sortAsc
+			} else {
+				m.sort, m.sortAsc = k, true
+			}
+			return m.sorted(), nil
+		}
 		return m, nil
 	}
 	if click && ms.Button == tea.MouseLeft {
@@ -156,10 +169,21 @@ func (m Model) viewTable(w, h int) string {
 	c := layoutCols(w)
 	sep := sepStyle.Render(" │ ")
 
+	sh := func(label string, k sortKey) string {
+		if m.sort == k {
+			if m.sortAsc {
+				return label + "▲"
+			}
+			return label + "▼"
+		}
+		return label
+	}
 	headCells := []string{
-		pad("", 1), pad("REF", c.ref), pad("VALUE", c.val), pad("FOOTPRINT", c.fp),
-		pad("QTY", c.qty), pad("LCSC", c.code), pad("STOCK", c.stock), pad("PRICE", c.price),
-		pad("DATASHEET", c.ds), pad("ROT", c.rot), pad("NOTE", c.note),
+		pad("", 1), pad(sh("REF", sortRef), c.ref), pad(sh("VALUE", sortVal), c.val),
+		pad(sh("FOOTPRINT", sortFp), c.fp), pad(sh("QTY", sortQty), c.qty),
+		pad(sh("LCSC", sortCode), c.code), pad(sh("STOCK", sortStock), c.stock),
+		pad(sh("PRICE", sortPrice), c.price), pad("DATASHEET", c.ds),
+		pad(sh("ROT", sortRot), c.rot), pad("NOTE", c.note),
 	}
 	head := colHeadStyle.Render(padRender(headCells[0]+" "+strings.Join(headCells[1:], " | "), w))
 	rule := borderStyle.Render(strings.Repeat("─", w))
@@ -235,6 +259,29 @@ func dsCellStyle(ds, s string) string {
 		return s
 	}
 	return linkStyle.Render(s)
+}
+
+// colSortKey maps a click x on the header row to the column's sort key. The ds
+// and note columns are not sortable.
+func colSortKey(c cols, x int) (sortKey, bool) {
+	spans := []struct {
+		w        int
+		k        sortKey
+		sortable bool
+	}{
+		{c.ref, sortRef, true}, {c.val, sortVal, true}, {c.fp, sortFp, true},
+		{c.qty, sortQty, true}, {c.code, sortCode, true}, {c.stock, sortStock, true},
+		{c.price, sortPrice, true}, {c.ds, sortNone, false}, {c.rot, sortRot, true},
+		{c.note, sortNone, false},
+	}
+	pos := 2 // icon (1) + space (1)
+	for _, s := range spans {
+		if x >= pos && x < pos+s.w {
+			return s.k, s.sortable
+		}
+		pos += s.w + 3 // + column separator
+	}
+	return sortNone, false
 }
 
 func (c cols) dsRange() (int, int) {
