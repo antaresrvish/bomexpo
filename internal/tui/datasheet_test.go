@@ -24,22 +24,20 @@ func TestDatasheetColumnAlignment(t *testing.T) {
 	m.excluded = []bool{false, false}
 	m.cursor = 0
 
-	c := layoutCols(m.contentW())
+	c := layoutCols()
 	lo, hi := c.dsRange()
 
-	// row 1 is non-selected; "datasheet" must sit inside dsRange (minus the
-	// panel's 2-col bar+space offset that dsRange includes).
-	line := stripANSI(m.rowView(1, c, sepStyle.Render(" │ "), m.contentW()))
+	// dsRange is in row-line coordinates (icon at 0), matching rowView output.
+	line := stripANSI(m.rowView(1, c, sepStyle.Render(" │ ")))
 	b := strings.Index(line, "datasheet")
 	if b < 0 {
 		t.Fatalf("no datasheet text in row: %q", line)
 	}
 	col := lipgloss.Width(line[:b]) // column (cell) position, not byte offset
-	// dsRange includes the panel's 2-col bar+space; rowView output has no panel.
-	if col != lo-2 {
-		t.Errorf("datasheet starts at column %d, want %d (dsRange %d-%d)", col, lo-2, lo, hi)
+	if col != lo {
+		t.Errorf("datasheet starts at column %d, want %d (dsRange %d-%d)", col, lo, lo, hi)
 	}
-	if col+lipgloss.Width("datasheet") > hi-2 {
+	if col+lipgloss.Width("datasheet") > hi {
 		t.Errorf("datasheet text overflows dsRange")
 	}
 }

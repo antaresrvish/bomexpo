@@ -65,6 +65,7 @@ type Model struct {
 
 	cursor int
 	top    int
+	hoff   int
 
 	sort    sortKey
 	sortAsc bool

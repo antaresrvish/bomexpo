@@ -7,9 +7,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"bomexpo/internal/export"
 	"bomexpo/internal/kicad"
+	"bomexpo/internal/render"
 	"bomexpo/internal/value"
 )
 
@@ -43,6 +45,10 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cursor = max(0, m.cursor-1)
 	case "down", "j":
 		m.cursor = min(len(m.items)-1, m.cursor+1)
+	case "left", "h":
+		m.hoff = clampInt(m.hoff-8, 0, m.maxHoff())
+	case "right", "l":
+		m.hoff = clampInt(m.hoff+8, 0, m.maxHoff())
 	case "g", "home":
 		m.cursor = 0
 	case "G", "end":
@@ -108,8 +114,18 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		m.clampScroll()
 		return m, nil
 	}
-	if click && ms.Button == tea.MouseLeft && ms.Y == 2 {
-		if k, ok := colSortKey(layoutCols(m.contentW()), ms.X); ok {
+	if !click || ms.Button != tea.MouseLeft {
+		return m, nil
+	}
+	bx := ms.X - 2 // strip the panel bar + space
+	if bx < 0 || bx >= m.tableW() {
+		return m, nil // click landed on the sidebar
+	}
+	c := layoutCols()
+	lineX := bx + clampInt(m.hoff, 0, m.maxHoff())
+
+	if ms.Y == 2 { // header row → sort by column
+		if k, ok := colSortKey(c, lineX); ok {
 			if m.sort == k {
 				m.sortAsc = !m.sortAsc
 			} else {
@@ -119,15 +135,13 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		}
 		return m, nil
 	}
-	if click && ms.Button == tea.MouseLeft {
-		row := m.top + (ms.Y - dataTop)
-		if row >= 0 && row < len(m.items) {
-			m.cursor = row
-			m.clampScroll()
-			if p := m.assigned[row]; p != nil && p.Datasheet != "" {
-				if lo, hi := layoutCols(m.contentW()).dsRange(); ms.X >= lo && ms.X < hi {
-					openExternal(p.Datasheet)
-				}
+	row := m.top + (ms.Y - dataTop)
+	if row >= 0 && row < len(m.items) {
+		m.cursor = row
+		m.clampScroll()
+		if p := m.assigned[row]; p != nil && p.Datasheet != "" {
+			if lo, hi := c.dsRange(); lineX >= lo && lineX < hi {
+				openExternal(p.Datasheet)
 			}
 		}
 	}
@@ -152,23 +166,95 @@ func (m *Model) clampScroll() {
 
 type cols struct{ ref, val, fp, qty, code, stock, price, ds, rot, note int }
 
-func layoutCols(w int) cols {
-	c := cols{ref: 9, val: 10, fp: 18, qty: 4, code: 9, stock: 9, price: 8, ds: 9, rot: 5}
-	fixed := 2 + c.ref + c.val + c.fp + c.qty + c.code + c.stock + c.price + c.ds + c.rot
-	c.note = w - fixed - 3*9
-	if c.note < 6 {
-		c.note = 6
+// layoutCols is a fixed-width layout; the table renders at its natural width
+// and the viewport scrolls horizontally over it.
+func layoutCols() cols {
+	return cols{ref: 9, val: 10, fp: 18, qty: 4, code: 9, stock: 9, price: 8, ds: 9, rot: 5, note: 24}
+}
+
+// fullWidth is the natural width of a rendered row: icon + space, every column,
+// and a 3-col separator between the ten cells.
+func (c cols) fullWidth() int {
+	return 2 + c.ref + c.val + c.fp + c.qty + c.code + c.stock + c.price + c.ds + c.rot + c.note + 3*9
+}
+
+func sidebarW(w int) int {
+	if w < 80 {
+		return 0
 	}
-	return c
+	sw := w * 2 / 5
+	if sw > 48 {
+		sw = 48
+	}
+	return sw
+}
+
+func (m Model) tableW() int {
+	w := m.contentW()
+	if sw := sidebarW(w); sw > 0 {
+		return w - sw - 1
+	}
+	return w
+}
+
+func (m Model) maxHoff() int {
+	if over := layoutCols().fullWidth() - m.tableW(); over > 0 {
+		return over
+	}
+	return 0
 }
 
 func (m Model) viewTable(w, h int) string {
 	if len(m.items) == 0 {
 		return subtleStyle.Render("no components")
 	}
-	c := layoutCols(w)
-	sep := sepStyle.Render(" │ ")
+	c := layoutCols()
+	sideW := sidebarW(w)
+	tableW := w
+	if sideW > 0 {
+		tableW = w - sideW - 1
+	}
 
+	tbl := m.tableBlock(c, tableW, h)
+	if sideW == 0 {
+		return strings.Join(tbl, "\n")
+	}
+	side := m.sidebarBlock(sideW, h)
+	bar := borderStyle.Render("│")
+	out := make([]string, h)
+	for i := 0; i < h; i++ {
+		out[i] = tbl[i] + bar + side[i]
+	}
+	return strings.Join(out, "\n")
+}
+
+// tableBlock renders the header, rule and visible rows at full width, then
+// horizontally crops each line to the viewport [hoff, hoff+tableW].
+func (m Model) tableBlock(c cols, tableW, h int) []string {
+	full := c.fullWidth()
+	hoff := clampInt(m.hoff, 0, max(0, full-tableW))
+	crop := func(s string) string {
+		s = ansi.Cut(s, hoff, hoff+tableW)
+		if p := tableW - lipgloss.Width(s); p > 0 {
+			s += spaces(p)
+		}
+		return s
+	}
+	sep := sepStyle.Render(" │ ")
+	head := colHeadStyle.Render(padRender(m.headRow(c), full))
+	rule := borderStyle.Render(strings.Repeat("─", full))
+	lines := []string{crop(head), crop(rule)}
+	end := min(len(m.items), m.top+(h-2))
+	for i := m.top; i < end; i++ {
+		lines = append(lines, crop(m.rowView(i, c, sep)))
+	}
+	for len(lines) < h {
+		lines = append(lines, spaces(tableW))
+	}
+	return lines[:h]
+}
+
+func (m Model) headRow(c cols) string {
 	sh := func(label string, k sortKey) string {
 		if m.sort == k {
 			if m.sortAsc {
@@ -178,26 +264,102 @@ func (m Model) viewTable(w, h int) string {
 		}
 		return label
 	}
-	headCells := []string{
+	cells := []string{
 		pad("", 1), pad(sh("REF", sortRef), c.ref), pad(sh("VALUE", sortVal), c.val),
 		pad(sh("FOOTPRINT", sortFp), c.fp), pad(sh("QTY", sortQty), c.qty),
 		pad(sh("LCSC", sortCode), c.code), pad(sh("STOCK", sortStock), c.stock),
 		pad(sh("PRICE", sortPrice), c.price), pad("DATASHEET", c.ds),
 		pad(sh("ROT", sortRot), c.rot), pad("NOTE", c.note),
 	}
-	head := colHeadStyle.Render(padRender(headCells[0]+" "+strings.Join(headCells[1:], " | "), w))
-	rule := borderStyle.Render(strings.Repeat("─", w))
-
-	vis := m.visibleRows()
-	end := min(len(m.items), m.top+vis)
-	lines := []string{head, rule}
-	for i := m.top; i < end; i++ {
-		lines = append(lines, m.rowView(i, c, sep, w))
-	}
-	return strings.Join(lines, "\n")
+	return cells[0] + " " + strings.Join(cells[1:], " | ")
 }
 
-func (m Model) rowView(i int, c cols, sep string, w int) string {
+// sidebarBlock is the right panel: a compact overview on top and a fixed,
+// shrunk board render below, split in half.
+func (m Model) sidebarBlock(sideW, h int) []string {
+	topH := (h - 1) / 2
+	botH := h - 1 - topH
+	lines := make([]string, 0, h)
+	ov := m.compactOverview()
+	for i := 0; i < topH; i++ {
+		if i < len(ov) {
+			lines = append(lines, padRender(ov[i], sideW))
+		} else {
+			lines = append(lines, spaces(sideW))
+		}
+	}
+	lines = append(lines, borderStyle.Render(strings.Repeat("─", sideW)))
+	bd := m.miniBoard(sideW, botH)
+	for i := 0; i < botH; i++ {
+		if i < len(bd) {
+			lines = append(lines, padRender(bd[i], sideW))
+		} else {
+			lines = append(lines, spaces(sideW))
+		}
+	}
+	return lines
+}
+
+func (m Model) compactOverview() []string {
+	var un, oos, mm int
+	for i := range m.items {
+		switch m.stateOf(i) {
+		case stUnassigned:
+			un++
+		case stOutOfStock:
+			oos++
+		case stMismatch:
+			mm++
+		}
+	}
+	assigned, _ := m.counts()
+	active := m.activeCount()
+	frac := 0.0
+	if active > 0 {
+		frac = float64(assigned) / float64(active)
+	}
+	kv := func(k, v string) string { return dimStyle.Render(pad(k, 11)) + v }
+	nRot := len(export.RotationFixes(m.placements, m.excludeSet(), m.rotOverrideMap()))
+	cost, complete := m.costAt(1)
+	costStr := fmt.Sprintf("$%.2f", cost)
+	if !complete {
+		costStr += "*"
+	}
+	return []string{
+		accentStyle.Render("Overview"),
+		progressBar(frac, 12) + subtleStyle.Render(fmt.Sprintf(" %d%%", int(frac*100+0.5))),
+		kv("assigned", okStyle.Render(fmt.Sprintf("%d/%d", assigned, active))),
+		kv("unassigned", hotStyle(un, warnStyle).Render(fmt.Sprintf("%d", un))),
+		kv("no stock", hotStyle(oos, badStyle).Render(fmt.Sprintf("%d", oos))),
+		kv("mismatch", hotStyle(mm, warnStyle).Render(fmt.Sprintf("%d", mm))),
+		kv("excluded", fmt.Sprintf("%d", m.excludedCount())),
+		kv("dnp", fmt.Sprintf("%d", m.dnpCount())),
+		kv("board", boardSize(m.boardW, m.boardH)),
+		kv("layers", dash(m.layers > 0, fmt.Sprintf("%d", m.layers))),
+		kv("est cost", costStr+dimStyle.Render(" qty1")),
+		kv("rotation", dash(nRot > 0, fmt.Sprintf("%d fixed", nRot))),
+	}
+}
+
+func (m Model) miniBoard(w, h int) []string {
+	if m.board == nil || m.board.Empty() || h < 2 {
+		return []string{dimStyle.Render("no board outline")}
+	}
+	hl := map[string]bool{}
+	if m.cursor >= 0 && m.cursor < len(m.items) {
+		for _, d := range m.items[m.cursor].Designators {
+			hl[d] = true
+		}
+	}
+	img := render.Render(m.board, m.placements, render.Options{W: w, H: h, Highlight: hl})
+	if img == "" {
+		return []string{dimStyle.Render("board too small")}
+	}
+	return strings.Split(img, "\n")
+}
+
+func (m Model) rowView(i int, c cols, sep string) string {
+	full := c.fullWidth()
 	it := m.items[i]
 	st := m.stateOf(i)
 	icon, note, noteStyle := stateDecor(st)
@@ -235,7 +397,7 @@ func (m Model) rowView(i int, c cols, sep string, w int) string {
 
 	if i == m.cursor {
 		line := "▶ " + strings.Join(plain, "   ")
-		return selRowStyle.Render(padRender(line, w))
+		return selRowStyle.Render(padRender(line, full))
 	}
 
 	colored := []string{
@@ -251,7 +413,7 @@ func (m Model) rowView(i int, c cols, sep string, w int) string {
 		noteStyle.Render(plain[9]),
 	}
 	line := icon + " " + strings.Join(colored, sep)
-	return padRender(line, w)
+	return padRender(line, full)
 }
 
 func dsCellStyle(ds, s string) string {
@@ -284,8 +446,11 @@ func colSortKey(c cols, x int) (sortKey, bool) {
 	return sortNone, false
 }
 
+// dsRange is the datasheet column's [start,end) in row-line coordinates (icon
+// at 0). Callers convert screen x to this space (subtract the panel offset, add
+// the horizontal scroll).
 func (c cols) dsRange() (int, int) {
-	start := 4 + c.ref + c.val + c.fp + c.qty + c.code + c.stock + c.price + 3*7
+	start := 2 + c.ref + c.val + c.fp + c.qty + c.code + c.stock + c.price + 3*7
 	return start, start + c.ds
 }
 
