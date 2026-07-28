@@ -61,8 +61,12 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "a":
 		return m.startAutoAssign()
+	case "t":
+		return m.openRender("top")
 	case "b":
-		return m.openRender(m.boardv.sideOr())
+		return m.openRender("bottom")
+	case "i":
+		return m.openRender("iso")
 	case "r":
 		return m.refreshCmd()
 	case "o":
@@ -485,21 +489,22 @@ func (m Model) miniBoard(w, h int) []string {
 	return strings.Split(img, "\n")
 }
 
-var boardSides = []struct{ label, side string }{
-	{"top", "top"}, {"bot", "bottom"}, {"iso", "iso"},
+// boardSides pairs each button's display text (the bracketed mnemonic doubles
+// as the keyboard hint) with the render side it selects.
+var boardSides = []struct{ text, side string }{
+	{"[t]op", "top"}, {"[b]ot", "bottom"}, {"[i]so", "iso"},
 }
 
-// boardHeader draws the "Board [top] [bot] [iso]" row; the selected side is
+// boardHeader draws the "Board [t]op [b]ot [i]so" row; the selected side is
 // highlighted. boardButtonSpans must stay in sync with its layout.
 func (m Model) boardHeader() string {
 	sel := m.boardv.sideOr()
 	b := accentStyle.Render("Board") + " "
 	for _, s := range boardSides {
-		lbl := "[" + s.label + "]"
 		if s.side == sel {
-			b += cursorStyle.Render(lbl)
+			b += cursorStyle.Render(s.text)
 		} else {
-			b += dimStyle.Render(lbl)
+			b += dimStyle.Render(s.text)
 		}
 		b += " "
 	}
@@ -518,7 +523,7 @@ func boardButtonSpans(sideStartX int) []struct {
 		side   string
 	}
 	for _, s := range boardSides {
-		w := len(s.label) + 2 // [xxx]
+		w := lipgloss.Width(s.text)
 		out = append(out, struct {
 			lo, hi int
 			side   string

@@ -422,7 +422,7 @@ func (m Model) helpLine() string {
 	case modeLoad:
 		hints = [][2]string{{"tab", "complete"}, {"enter", "open"}, {"ctrl+c", "quit"}}
 	case modeTable:
-		hints = [][2]string{{"enter", "assign"}, {"a", "auto"}, {"b", "3D"}, {"o", "rotate"}, {"w", "save"}, {"←→", "scroll"}, {"tab", "switch"}}
+		hints = [][2]string{{"enter", "assign"}, {"a", "auto"}, {"t/b/i", "3D"}, {"o", "rotate"}, {"w", "save"}, {"←→", "scroll"}, {"tab", "switch"}}
 	case modeSearch:
 		hints = [][2]string{{"type", "search"}, {"↑↓", "results"}, {"enter", "pick"}, {"^f/^t/^s", "filters"}, {"esc", "back"}}
 	case modeCheck:
