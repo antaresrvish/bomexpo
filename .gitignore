@@ -11,6 +11,9 @@
 # Local build of the CLI
 /bomexpo
 
+# GoReleaser output
+/dist/
+
 # Code coverage profiles and other test artifacts
 *.out
 coverage.*

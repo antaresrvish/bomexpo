@@ -13,32 +13,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: build binaries
-        run: |
-          ver="${GITHUB_REF_NAME}"
-          mkdir -p dist
-          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
-            export GOOS="${t%/*}" GOARCH="${t#*/}" CGO_ENABLED=0
-            bin=bomexpo
-            [ "$GOOS" = windows ] && bin=bomexpo.exe
-            go build -trimpath -ldflags "-s -w -X main.version=${ver}" -o "$bin" .
-            base="bomexpo_${ver}_${GOOS}_${GOARCH}"
-            if [ "$GOOS" = windows ]; then
-              zip -q "dist/${base}.zip" "$bin"
-            else
-              tar czf "dist/${base}.tar.gz" "$bin"
-            fi
-            rm -f "$bin"
-          done
-          (cd dist && sha256sum * > checksums.txt)
-
-      - name: publish release
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2.4"
+          args: release --clean
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" dist/* --title "${GITHUB_REF_NAME}" --generate-notes
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
