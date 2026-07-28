@@ -51,15 +51,19 @@ func (m Model) updateLoad(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) viewLoad(width, height int) string {
-	title := accentStyle.Render("Open a KiCad project")
-	hint := subtleStyle.Render("bomexpo reads components, values, placements and the board outline straight from the .kicad_pcb.")
-	field := labelStyle.Render("Project  ") + m.load.field.View()
-	listing := m.renderListing(m.load.field.Value())
-
-	body := lipgloss.JoinVertical(lipgloss.Left,
-		title, hint, "", field, "", listing, "",
+	header := lipgloss.JoinVertical(lipgloss.Center,
+		logo(),
+		"",
+		subtleStyle.Render("KiCad → LCSC assembly-order console"),
+	)
+	form := lipgloss.JoinVertical(lipgloss.Left,
+		labelStyle.Render("Project  ")+m.load.field.View(),
+		"",
+		m.renderListing(m.load.field.Value()),
+		"",
 		dimStyle.Render("tab complete · enter open · ^a select all · ^w delete word"),
 	)
+	body := lipgloss.JoinVertical(lipgloss.Center, header, "", form)
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, body)
 }
 
