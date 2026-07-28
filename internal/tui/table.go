@@ -62,7 +62,7 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		return m.startAutoAssign()
 	case "b":
-		return m.openRender()
+		return m.openRender(m.boardv.sideOr())
 	case "r":
 		return m.refreshCmd()
 	case "o":
@@ -150,11 +150,23 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 	}
 	m.drag = dragNone
 
+	// board side buttons live in the sidebar's board-header row
+	if sidebarW(m.contentW()) > 0 {
+		topH := (h - 1) / 2
+		if ms.Y == 2+topH+1 {
+			for _, b := range boardButtonSpans(2 + tableW + 2) {
+				if ms.X >= b.lo && ms.X < b.hi {
+					return m.openRender(b.side)
+				}
+			}
+		}
+	}
+
 	bx := ms.X - 2
 	if bx < 0 || bx >= tableW {
 		return m, nil // sidebar
 	}
-	c := layoutCols()
+	c := layoutCols(tableW)
 	lineX := bx + clampInt(m.hoff, 0, m.maxHoff())
 
 	if ms.Y == 2 { // header → sort by column
@@ -199,10 +211,16 @@ func (m *Model) clampScroll() {
 
 type cols struct{ ref, val, fp, qty, code, stock, price, ds, rot, note int }
 
-// layoutCols is a fixed-width layout; the table renders at its natural width
-// and the viewport scrolls horizontally over it.
-func layoutCols() cols {
-	return cols{ref: 9, val: 10, fp: 18, qty: 4, code: 9, stock: 9, price: 8, ds: 9, rot: 5, note: 24}
+// layoutCols flexes the NOTE column to fill the table viewport, with a minimum
+// width; when the fixed columns already overflow, note stays at the minimum and
+// the viewport scrolls horizontally.
+func layoutCols(tableW int) cols {
+	c := cols{ref: 9, val: 10, fp: 18, qty: 4, code: 9, stock: 9, price: 8, ds: 9, rot: 5}
+	c.note = tableW - 2 - c.ref - c.val - c.fp - c.qty - c.code - c.stock - c.price - c.ds - c.rot - 3*9
+	if c.note < 24 {
+		c.note = 24
+	}
+	return c
 }
 
 // fullWidth is the natural width of a rendered row: icon + space, every column,
@@ -225,13 +243,14 @@ func sidebarW(w int) int {
 func (m Model) tableW() int {
 	w := m.contentW()
 	if sw := sidebarW(w); sw > 0 {
-		return w - sw - 1 // 1 column for the vertical scrollbar / separator
+		return w - sw - 2 // vertical scrollbar + a gap before the sidebar
 	}
 	return w - 1 // reserve 1 column for the vertical scrollbar
 }
 
 func (m Model) maxHoff() int {
-	if over := layoutCols().fullWidth() - m.tableW(); over > 0 {
+	tw := m.tableW()
+	if over := layoutCols(tw).fullWidth() - tw; over > 0 {
 		return over
 	}
 	return 0
@@ -241,12 +260,12 @@ func (m Model) viewTable(w, h int) string {
 	if len(m.items) == 0 {
 		return subtleStyle.Render("no components")
 	}
-	c := layoutCols()
 	sideW := sidebarW(w)
 	tableW := w - 1
 	if sideW > 0 {
-		tableW = w - sideW - 1
+		tableW = w - sideW - 2
 	}
+	c := layoutCols(tableW)
 	tbl := m.tableBlock(c, tableW, h)
 	vbar := m.vScrollCol(h)
 	var side []string
@@ -257,7 +276,7 @@ func (m Model) viewTable(w, h int) string {
 	for i := 0; i < h; i++ {
 		line := tbl[i] + vbar[i]
 		if sideW > 0 {
-			line += side[i]
+			line += " " + side[i]
 		}
 		out[i] = line
 	}
@@ -397,7 +416,7 @@ func (m Model) sidebarBlock(sideW, h int) []string {
 		}
 	}
 	lines = append(lines, borderStyle.Render(strings.Repeat("─", sideW)))
-	lines = append(lines, padRender(accentStyle.Render("Board")+dimStyle.Render("  b → 3D render · traces on"), sideW))
+	lines = append(lines, padRender(m.boardHeader(), sideW))
 	bd := m.miniBoard(sideW, botH-1)
 	for i := 0; i < botH-1; i++ {
 		if i < len(bd) {
@@ -464,6 +483,49 @@ func (m Model) miniBoard(w, h int) []string {
 		return []string{dimStyle.Render("board too small")}
 	}
 	return strings.Split(img, "\n")
+}
+
+var boardSides = []struct{ label, side string }{
+	{"top", "top"}, {"bot", "bottom"}, {"iso", "iso"},
+}
+
+// boardHeader draws the "Board [top] [bot] [iso]" row; the selected side is
+// highlighted. boardButtonSpans must stay in sync with its layout.
+func (m Model) boardHeader() string {
+	sel := m.boardv.sideOr()
+	b := accentStyle.Render("Board") + " "
+	for _, s := range boardSides {
+		lbl := "[" + s.label + "]"
+		if s.side == sel {
+			b += cursorStyle.Render(lbl)
+		} else {
+			b += dimStyle.Render(lbl)
+		}
+		b += " "
+	}
+	return b
+}
+
+// boardButtonSpans returns the screen-x ranges of the side buttons, given where
+// the sidebar content starts on screen.
+func boardButtonSpans(sideStartX int) []struct {
+	lo, hi int
+	side   string
+} {
+	x := sideStartX + 6 // "Board "
+	var out []struct {
+		lo, hi int
+		side   string
+	}
+	for _, s := range boardSides {
+		w := len(s.label) + 2 // [xxx]
+		out = append(out, struct {
+			lo, hi int
+			side   string
+		}{x, x + w, s.side})
+		x += w + 1
+	}
+	return out
 }
 
 func (m Model) rowView(i int, c cols, sep string) string {

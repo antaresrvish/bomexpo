@@ -24,7 +24,7 @@ func TestDatasheetColumnAlignment(t *testing.T) {
 	m.excluded = []bool{false, false}
 	m.cursor = 0
 
-	c := layoutCols()
+	c := layoutCols(m.tableW())
 	lo, hi := c.dsRange()
 
 	// dsRange is in row-line coordinates (icon at 0), matching rowView output.

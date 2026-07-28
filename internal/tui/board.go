@@ -25,22 +25,22 @@ func (m Model) renderCmd(side string) tea.Cmd {
 	}
 }
 
-// openRender opens the photorealistic 3D board render in the external viewer,
-// rendering it first (via kicad-cli) if it isn't cached yet.
-func (m Model) openRender() (tea.Model, tea.Cmd) {
-	if m.pcbPath == "" {
+func (b boardState) sideOr() string {
+	if b.side == "" {
+		return "top"
+	}
+	return b.side
+}
+
+// openRender renders the chosen board side (top/bottom/iso) via kicad-cli and
+// opens the photorealistic result in the external viewer.
+func (m Model) openRender(side string) (tea.Model, tea.Cmd) {
+	if m.pcbPath == "" || m.boardv.rendering {
 		return m, nil
 	}
-	if m.boardv.img != "" {
-		openExternal(m.boardv.img)
-		m.flash = "opened 3D render in your viewer"
-		return m, nil
-	}
-	if m.boardv.rendering {
-		return m, nil
-	}
+	m.boardv.side = side
 	m.boardv.rendering = true
 	m.loading = true
-	m.status = "rendering 3D board…"
-	return m, m.renderCmd("top")
+	m.status = "rendering 3D board (" + side + ")…"
+	return m, m.renderCmd(side)
 }
