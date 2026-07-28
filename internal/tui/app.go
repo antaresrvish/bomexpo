@@ -370,20 +370,18 @@ func (m Model) infoStats() string {
 	seg := func(label, val string) string {
 		return dimStyle.Render(label+" ") + lipgloss.NewStyle().Foreground(cFg).Render(val)
 	}
-	var parts []string
+	a, _ := m.counts()
+	active := m.activeCount()
+	frac := 0.0
+	if active > 0 {
+		frac = float64(a) / float64(active)
+	}
+	parts := []string{readinessBar(frac)}
 	if m.boardW > 0 {
 		parts = append(parts, seg("board", fmt.Sprintf("%.1f×%.1f mm", m.boardW, m.boardH)))
 	}
 	if m.layers > 0 {
 		parts = append(parts, seg("layers", fmt.Sprintf("%d", m.layers)))
-	}
-	a, _ := m.counts()
-	parts = append(parts, seg("assigned", fmt.Sprintf("%d/%d", a, m.activeCount())))
-	if ex := m.excludedCount(); ex > 0 {
-		parts = append(parts, seg("excluded", fmt.Sprintf("%d", ex)))
-	}
-	if dnp := m.dnpCount(); dnp > 0 {
-		parts = append(parts, seg("dnp", fmt.Sprintf("%d", dnp)))
 	}
 	cost, complete := m.totalCost()
 	costStr := fmt.Sprintf("$%.2f", cost)
@@ -392,6 +390,17 @@ func (m Model) infoStats() string {
 	}
 	parts = append(parts, dimStyle.Render("cost ")+okStyle.Render(costStr))
 	return strings.Join(parts, sepStyle.Render("  │  "))
+}
+
+func readinessBar(frac float64) string {
+	const w = 16
+	fill := int(frac*float64(w) + 0.5)
+	if fill > w {
+		fill = w
+	}
+	return dimStyle.Render("assembly ") +
+		okStyle.Render(strings.Repeat("█", fill)) + dimStyle.Render(strings.Repeat("░", w-fill)) +
+		subtleStyle.Render(fmt.Sprintf(" %d%%", int(frac*100+0.5)))
 }
 
 func (m Model) bottomBar() string {

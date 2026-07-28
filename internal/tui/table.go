@@ -408,13 +408,10 @@ func (m Model) headRow(c cols) string {
 // sidebarBlock is the right panel: boxed overview stats on top and a fixed,
 // shrunk board render (traces on) below, split in half.
 func (m Model) sidebarBlock(sideW, h int) []string {
-	botH := (h - 1) / 2
-	if botH > 13 {
-		botH = 13 // cap the board so the overview/inspector gets the room
-	}
-	topH := h - 1 - botH
+	topH := (h - 1) / 2
+	botH := h - 1 - topH
 	lines := make([]string, 0, h)
-	ov := m.compactOverview(sideW)
+	ov := m.compactOverview(sideW, topH)
 	for i := 0; i < topH; i++ {
 		if i < len(ov) {
 			lines = append(lines, padRender(ov[i], sideW))
@@ -435,7 +432,7 @@ func (m Model) sidebarBlock(sideW, h int) []string {
 	return lines
 }
 
-func (m Model) compactOverview(sideW int) []string {
+func (m Model) compactOverview(sideW, avail int) []string {
 	var un, oos, mm int
 	for i := range m.items {
 		switch m.stateOf(i) {
@@ -463,14 +460,17 @@ func (m Model) compactOverview(sideW int) []string {
 
 	lines := strings.Split(grid, "\n")
 	lines = append(lines, summary)
-	return append(lines, m.selectedInspector(sideW)...)
+	if budget := avail - len(lines); budget >= 3 {
+		lines = append(lines, m.selectedInspector(sideW, budget)...)
+	}
+	return lines
 }
 
 // selectedInspector renders a labeled card for the highlighted row so the side
 // panel doubles as a live inspector.
-func (m Model) selectedInspector(sideW int) []string {
+func (m Model) selectedInspector(sideW, budget int) []string {
 	i := m.cursor
-	if i < 0 || i >= len(m.items) {
+	if i < 0 || i >= len(m.items) || budget < 3 {
 		return nil
 	}
 	it := m.items[i]
@@ -487,9 +487,8 @@ func (m Model) selectedInspector(sideW int) []string {
 	kv := func(label, val string) string { return dimStyle.Render(pad(label, 10)) + val }
 
 	rows := []string{
-		kv("value", subtleStyle.Render(it.Value)),
-		kv("footprint", dimStyle.Render(it.Footprint)),
 		kv("status", icon+" "+ns.Render(note)),
+		kv("value", subtleStyle.Render(it.Value)),
 	}
 	if p := m.assigned[i]; p != nil {
 		code := codeStyle.Render(it.LCSC)
@@ -511,8 +510,11 @@ func (m Model) selectedInspector(sideW int) []string {
 		rows = append(rows, kv("lcsc", dimStyle.Render("— unassigned")))
 	}
 	rt, rs := rotCell(it)
-	rows = append(rows, kv("rotation", rs.Render(rt)))
+	rows = append(rows, kv("footprint", dimStyle.Render(it.Footprint)), kv("rotation", rs.Render(rt)))
 
+	if n := budget - 2; len(rows) > n {
+		rows = rows[:n]
+	}
 	return sideCard(sideW, "◆ "+ref, rows)
 }
 
