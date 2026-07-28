@@ -408,8 +408,11 @@ func (m Model) headRow(c cols) string {
 // sidebarBlock is the right panel: boxed overview stats on top and a fixed,
 // shrunk board render (traces on) below, split in half.
 func (m Model) sidebarBlock(sideW, h int) []string {
-	topH := (h - 1) / 2
-	botH := h - 1 - topH
+	botH := (h - 1) / 2
+	if botH > 13 {
+		botH = 13 // cap the board so the overview/inspector gets the room
+	}
+	topH := h - 1 - botH
 	lines := make([]string, 0, h)
 	ov := m.compactOverview(sideW)
 	for i := 0; i < topH; i++ {
@@ -463,8 +466,8 @@ func (m Model) compactOverview(sideW int) []string {
 	return append(lines, m.selectedInspector(sideW)...)
 }
 
-// selectedInspector shows the highlighted row's part detail so the side panel
-// doubles as a live inspector.
+// selectedInspector renders a labeled card for the highlighted row so the side
+// panel doubles as a live inspector.
 func (m Model) selectedInspector(sideW int) []string {
 	i := m.cursor
 	if i < 0 || i >= len(m.items) {
@@ -481,29 +484,50 @@ func (m Model) selectedInspector(sideW int) []string {
 	} else if note == "" {
 		note, ns = "ready", okStyle
 	}
-	lines := []string{
-		accentStyle.Render("Selected"),
-		codeStyle.Render(ref) + "  " + subtleStyle.Render(trunc(it.Value, sideW-lipgloss.Width(ref)-2)),
-		dimStyle.Render(trunc(it.Footprint, sideW)),
-		icon + " " + ns.Render(trunc(note, sideW-2)),
+	kv := func(label, val string) string { return dimStyle.Render(pad(label, 10)) + val }
+
+	rows := []string{
+		kv("value", subtleStyle.Render(it.Value)),
+		kv("footprint", dimStyle.Render(it.Footprint)),
+		kv("status", icon+" "+ns.Render(note)),
 	}
 	if p := m.assigned[i]; p != nil {
-		head := codeStyle.Render(it.LCSC)
+		code := codeStyle.Render(it.LCSC)
 		if p.Brand != "" {
-			head += dimStyle.Render(" · ") + subtleStyle.Render(trunc(p.Brand, sideW-lipgloss.Width(it.LCSC)-3))
+			code += dimStyle.Render(" · ") + subtleStyle.Render(p.Brand)
 		}
-		lines = append(lines,
-			head,
-			dimStyle.Render(trunc(p.Description(), sideW)),
-			subtleStyle.Render(fmt.Sprintf("stock %s · %s", groupThousands(p.Stock), p.PriceLabel())),
+		rows = append(rows,
+			kv("lcsc", code),
+			kv("desc", dimStyle.Render(p.Description())),
+			kv("stock", okStyle.Render(groupThousands(p.Stock))),
+			kv("price", warnStyle.Render(p.PriceLabel())),
 		)
 		if s := p.Specs(); s != "" {
-			lines = append(lines, dimStyle.Render(trunc(s, sideW)))
+			rows = append(rows, kv("specs", dimStyle.Render(s)))
 		}
 	} else if it.LCSC != "" {
-		lines = append(lines, codeStyle.Render(it.LCSC)+dimStyle.Render(" loading…"))
+		rows = append(rows, kv("lcsc", codeStyle.Render(it.LCSC)+dimStyle.Render(" loading…")))
+	} else {
+		rows = append(rows, kv("lcsc", dimStyle.Render("— unassigned")))
 	}
-	return lines
+	rt, rs := rotCell(it)
+	rows = append(rows, kv("rotation", rs.Render(rt)))
+
+	return sideCard(sideW, "◆ "+ref, rows)
+}
+
+// sideCard frames labeled rows in a titled rounded box sized to the sidebar.
+func sideCard(sideW int, title string, rows []string) []string {
+	inner := sideW - 2
+	fill := sideW - 4 - lipgloss.Width(title)
+	if fill < 0 {
+		fill = 0
+	}
+	out := []string{borderStyle.Render("╭ ") + accentStyle.Render(title) + borderStyle.Render(" "+strings.Repeat("─", fill)+"╮")}
+	for _, r := range rows {
+		out = append(out, borderStyle.Render("│")+padRender(r, inner)+borderStyle.Render("│"))
+	}
+	return append(out, borderStyle.Render("╰"+strings.Repeat("─", inner)+"╯"))
 }
 
 func (m Model) miniBoard(w, h int) []string {
