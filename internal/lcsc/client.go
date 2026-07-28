@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -18,15 +20,21 @@ const (
 )
 
 type Client struct {
-	http *http.Client
-	sem  chan struct{}
+	http     *http.Client
+	sem      chan struct{}
+	cacheDir string
 }
 
 func New() *Client {
-	return &Client{
+	c := &Client{
 		http: &http.Client{Timeout: 15 * time.Second},
 		sem:  make(chan struct{}, 6),
 	}
+	if dir, err := os.UserCacheDir(); err == nil {
+		c.cacheDir = filepath.Join(dir, "bomexpo", "lcsc")
+		os.MkdirAll(c.cacheDir, 0o755)
+	}
+	return c
 }
 
 type envelope struct {
@@ -37,6 +45,17 @@ type envelope struct {
 }
 
 func (c *Client) call(method, url string, body any, out any) error {
+	raw, err := c.callRaw(method, url, body)
+	if err != nil {
+		return err
+	}
+	if out == nil || len(raw) == 0 {
+		return nil
+	}
+	return json.Unmarshal(raw, out)
+}
+
+func (c *Client) callRaw(method, url string, body any) (json.RawMessage, error) {
 	if c.sem != nil {
 		c.sem <- struct{}{}
 		defer func() { <-c.sem }()
@@ -45,14 +64,14 @@ func (c *Client) call(method, url string, body any, out any) error {
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		reader = bytes.NewReader(b)
 	}
 
 	req, err := http.NewRequest(method, url, reader)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/json")
@@ -90,13 +109,10 @@ func (c *Client) call(method, url string, body any, out any) error {
 		break
 	}
 	if lastErr != nil {
-		return lastErr
+		return nil, lastErr
 	}
 	if env.Code != 200 {
-		return fmt.Errorf("lcsc: %s (code %d)", env.Msg, env.Code)
+		return nil, fmt.Errorf("lcsc: %s (code %d)", env.Msg, env.Code)
 	}
-	if out == nil || len(env.Result) == 0 {
-		return nil
-	}
-	return json.Unmarshal(env.Result, out)
+	return env.Result, nil
 }

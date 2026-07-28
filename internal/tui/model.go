@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
@@ -63,6 +65,9 @@ type Model struct {
 
 	autoRemaining int
 	autoOK        int
+
+	refreshRemaining int
+	refreshOK        int
 }
 
 func New(project string) Model {
@@ -158,6 +163,41 @@ func (m Model) detailCmd(idx int, code string) tea.Cmd {
 	return func() tea.Msg {
 		p, err := client.Detail(code)
 		return detailDoneMsg{idx: idx, part: p, err: err}
+	}
+}
+
+type refreshDoneMsg struct {
+	idx  int
+	part lcsc.Part
+	err  error
+}
+
+// refreshCmd force-refetches stock and pricing for every assigned line item,
+// bypassing the cache.
+func (m Model) refreshCmd() (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	for i, it := range m.items {
+		if it.LCSC == "" {
+			continue
+		}
+		cmds = append(cmds, m.refreshOne(i, it.LCSC))
+	}
+	if len(cmds) == 0 {
+		m.flash = "nothing assigned to refresh"
+		return m, nil
+	}
+	m.refreshRemaining = len(cmds)
+	m.refreshOK = 0
+	m.loading = true
+	m.status = fmt.Sprintf("Refreshing stock & prices for %d parts…", len(cmds))
+	return m, tea.Batch(cmds...)
+}
+
+func (m Model) refreshOne(idx int, code string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		p, err := client.Refresh(code)
+		return refreshDoneMsg{idx: idx, part: p, err: err}
 	}
 }
 

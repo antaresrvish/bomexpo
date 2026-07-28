@@ -133,6 +133,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case refreshDoneMsg:
+		if m.refreshRemaining > 0 {
+			m.refreshRemaining--
+		}
+		if msg.err == nil && msg.idx >= 0 && msg.idx < len(m.assigned) {
+			p := msg.part
+			m.assigned[msg.idx] = &p
+			m.refreshOK++
+		}
+		if m.refreshRemaining <= 0 {
+			m.loading = false
+			m.flash = fmt.Sprintf("↻ refreshed %d parts — stock & prices updated", m.refreshOK)
+		}
+		return m, nil
+
 	case renderDoneMsg:
 		m.boardv.rendering = false
 		if msg.err != nil {
@@ -406,9 +421,9 @@ func (m Model) helpLine() string {
 	case modeLoad:
 		hints = [][2]string{{"tab", "complete"}, {"enter", "open"}, {"ctrl+c", "quit"}}
 	case modeOverview:
-		hints = [][2]string{{"enter", "next"}, {"a", "auto-assign"}, {"w", "save to pcb"}, {"3", "components"}, {"tab", "switch"}}
+		hints = [][2]string{{"enter", "next"}, {"a", "auto-assign"}, {"r", "refresh"}, {"w", "save"}, {"tab", "switch"}}
 	case modeTable:
-		hints = [][2]string{{"enter", "assign"}, {"a", "auto-assign"}, {"w", "save to pcb"}, {"x", "exclude"}, {"d", "datasheet"}, {"tab", "switch"}}
+		hints = [][2]string{{"enter", "assign"}, {"a", "auto-assign"}, {"r", "refresh"}, {"w", "save"}, {"x", "exclude"}, {"tab", "switch"}}
 	case modeSearch:
 		hints = [][2]string{{"type", "search"}, {"↑↓", "results"}, {"enter", "pick"}, {"^f/^t/^s", "filters"}, {"esc", "back"}}
 	case modeBoard:
