@@ -18,6 +18,7 @@ type Component struct {
 	Layer        string
 	LCSC         string
 	DNP          bool
+	ExcludeBOM   bool
 	BodyW, BodyH float64
 }
 
@@ -173,8 +174,11 @@ func parseFootprint(n *node) (Component, bool) {
 			}
 		case "attr":
 			for _, a := range k.kids[1:] {
-				if a.atom == "dnp" {
+				switch a.atom {
+				case "dnp":
 					c.DNP = true
+				case "exclude_from_bom":
+					c.ExcludeBOM = true
 				}
 			}
 		case "at":
@@ -341,9 +345,11 @@ func (p *Project) BOM() []Item {
 		k := key{c.Value, c.Footprint, c.DNP}
 		it, ok := groups[k]
 		if !ok {
-			it = &Item{Value: c.Value, Footprint: c.Footprint, DNP: c.DNP}
+			it = &Item{Value: c.Value, Footprint: c.Footprint, DNP: c.DNP, ExcludeBOM: c.ExcludeBOM}
 			groups[k] = it
 			order = append(order, k)
+		} else {
+			it.ExcludeBOM = it.ExcludeBOM && c.ExcludeBOM
 		}
 		it.Bases = append(it.Bases, c.Ref)
 		it.Designators = append(it.Designators, c.Ref)

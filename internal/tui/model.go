@@ -37,6 +37,7 @@ type Model struct {
 	w, h   int
 	err    string
 	status string
+	flash  string
 
 	spin    spinner.Model
 	loading bool
@@ -190,9 +191,9 @@ func (m Model) exportCmd(path string) tea.Cmd {
 }
 
 type savedMsg struct {
-	path              string
-	updated, inserted int
-	err               error
+	path string
+	res  kicad.WriteResult
+	err  error
 }
 
 func (m Model) saveCmd() tea.Cmd {
@@ -200,18 +201,25 @@ func (m Model) saveCmd() tea.Cmd {
 		return nil
 	}
 	codes := map[string]string{}
-	for _, it := range m.items {
-		if it.LCSC == "" {
-			continue
+	exclude := map[string]bool{}
+	for i, it := range m.items {
+		if it.LCSC != "" {
+			for _, d := range it.Designators {
+				codes[d] = it.LCSC
+			}
 		}
+		if it.DNP {
+			continue // DNP exclusion is KiCad's own dnp flag, left untouched
+		}
+		on := i < len(m.excluded) && m.excluded[i]
 		for _, d := range it.Designators {
-			codes[d] = it.LCSC
+			exclude[d] = on
 		}
 	}
 	pcb := m.pcbPath
 	return func() tea.Msg {
-		upd, ins, err := kicad.WriteLCSC(pcb, codes)
-		return savedMsg{path: pcb, updated: upd, inserted: ins, err: err}
+		res, err := kicad.WriteBack(pcb, codes, exclude)
+		return savedMsg{path: pcb, res: res, err: err}
 	}
 }
 

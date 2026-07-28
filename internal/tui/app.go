@@ -58,19 +58,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.boardW, m.boardH = msg.boardW, msg.boardH
 		m.assigned = make([]*lcsc.Part, len(m.items))
 		m.excluded = make([]bool, len(m.items))
-		dnp := 0
+		dnp, exb := 0, 0
 		for i := range m.items {
-			if m.items[i].DNP {
+			switch {
+			case m.items[i].DNP:
 				m.excluded[i] = true
 				dnp++
+			case m.items[i].ExcludeBOM:
+				m.excluded[i] = true
+				exb++
 			}
 		}
 		m.mode = modeOverview
 		m.cursor, m.top = 0, 0
 		m.err = ""
 		m.status = fmt.Sprintf("%s · %d components in %d line items", msg.name, len(m.placements), len(m.items))
+		m.flash = fmt.Sprintf("loaded %s — %d line items", msg.name, len(m.items))
 		if dnp > 0 {
-			m.status += fmt.Sprintf(" · %d DNP excluded", dnp)
+			m.flash += fmt.Sprintf(" · %d DNP", dnp)
+		}
+		if exb > 0 {
+			m.flash += fmt.Sprintf(" · %d excluded restored", exb)
 		}
 		return m, m.prefillCmd()
 
@@ -89,7 +97,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.err = "export failed: " + msg.err.Error()
 		} else {
-			m.status = "✓ exported → " + msg.path
+			m.flash = "✓ exported → " + msg.path
 		}
 		return m, nil
 
@@ -97,7 +105,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.err = "write failed: " + msg.err.Error()
 		} else {
-			m.status = fmt.Sprintf("✓ wrote LCSC codes to %s · %d updated, %d added", filepath.Base(msg.path), msg.updated, msg.inserted)
+			r := msg.res
+			if r.CodesUpdated+r.CodesInserted+r.Excluded+r.Included == 0 {
+				m.flash = "✓ " + filepath.Base(msg.path) + " already up to date"
+			} else {
+				m.flash = fmt.Sprintf("✓ saved %s — %d codes, %d excluded, %d re-included",
+					filepath.Base(msg.path), r.CodesUpdated+r.CodesInserted, r.Excluded, r.Included)
+			}
 		}
 		return m, nil
 
@@ -135,6 +149,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+		m.flash = ""
 		return m.routeKey(msg)
 
 	case tea.MouseClickMsg:
@@ -370,6 +385,8 @@ func (m Model) bottomBar() string {
 		left = badStyle.Render("✗ " + m.err)
 	case m.loading:
 		left = m.spin.View() + " " + subtleStyle.Render(m.status)
+	case m.flash != "":
+		left = okStyle.Render(m.flash)
 	case len(m.items) > 0:
 		left = m.infoStats()
 	default:

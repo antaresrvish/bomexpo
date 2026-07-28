@@ -8,20 +8,31 @@ import (
 	"strings"
 )
 
-// WriteLCSC writes LCSC part codes back into the .kicad_pcb, keyed by
-// reference designator. A footprint that already carries an LCSC property has
-// its value replaced in place; one without gets a minimal property line after
-// its Value. Everything else in the file is preserved byte-for-byte, and the
-// result is re-parsed before it replaces the original.
-func WriteLCSC(pcbPath string, codes map[string]string) (updated, inserted int, err error) {
+type WriteResult struct {
+	CodesUpdated  int
+	CodesInserted int
+	Excluded      int
+	Included      int
+}
+
+// WriteBack writes bomexpo's work back into the .kicad_pcb, keyed by reference
+// designator: LCSC codes from `codes`, and the exclude-from-BOM flag from
+// `exclude` (a ref present with value true gets excluded, false gets
+// re-included; refs absent from the map are left untouched). Existing LCSC
+// properties are updated in place, missing ones get a minimal property line,
+// and the (attr …) list is rebuilt to add or drop the exclude tokens.
+// Everything else is preserved byte-for-byte and the result is re-parsed
+// before it replaces the original.
+func WriteBack(pcbPath string, codes map[string]string, exclude map[string]bool) (WriteResult, error) {
+	var res WriteResult
 	data, err := os.ReadFile(pcbPath)
 	if err != nil {
-		return 0, 0, err
+		return res, err
 	}
 	src := string(data)
 	root, err := parseSexp(src)
 	if err != nil {
-		return 0, 0, fmt.Errorf("parse pcb: %w", err)
+		return res, fmt.Errorf("parse pcb: %w", err)
 	}
 
 	type edit struct {
@@ -33,24 +44,34 @@ func WriteLCSC(pcbPath string, codes map[string]string) (updated, inserted int, 
 		if h := n.head(); h != "footprint" && h != "module" {
 			continue
 		}
-		code := codes[propValue(n, "reference")]
-		if code == "" {
+		ref := propValue(n, "reference")
+		if ref == "" {
 			continue
 		}
-		if lc := lcscProp(n); lc != nil {
-			v := lc.kids[2]
-			if v.atom == code {
-				continue
+		if code := codes[ref]; code != "" {
+			if lc := lcscProp(n); lc != nil {
+				if v := lc.kids[2]; v.atom != code {
+					edits = append(edits, edit{v.start, v.end, quoteAtom(code)})
+					res.CodesUpdated++
+				}
+			} else if a := anchorProp(n); a != nil {
+				edits = append(edits, edit{a.end, a.end, "\n\t\t(property \"LCSC\" " + quoteAtom(code) + ")"})
+				res.CodesInserted++
 			}
-			edits = append(edits, edit{v.start, v.end, quoteAtom(code)})
-			updated++
-		} else if a := anchorProp(n); a != nil {
-			edits = append(edits, edit{a.end, a.end, "\n\t\t(property \"LCSC\" " + quoteAtom(code) + ")"})
-			inserted++
+		}
+		if want, ok := exclude[ref]; ok {
+			if at, end, text, changed := attrEdit(n, want); changed {
+				edits = append(edits, edit{at, end, text})
+				if want {
+					res.Excluded++
+				} else {
+					res.Included++
+				}
+			}
 		}
 	}
 	if len(edits) == 0 {
-		return 0, 0, nil
+		return res, nil
 	}
 
 	sort.Slice(edits, func(i, j int) bool { return edits[i].at > edits[j].at })
@@ -63,12 +84,63 @@ func WriteLCSC(pcbPath string, codes map[string]string) (updated, inserted int, 
 		out = nb
 	}
 	if _, err := parseSexp(string(out)); err != nil {
-		return 0, 0, fmt.Errorf("edit would corrupt the pcb, aborting: %w", err)
+		return WriteResult{}, fmt.Errorf("edit would corrupt the pcb, aborting: %w", err)
 	}
 	if err := writeFileAtomic(pcbPath, out); err != nil {
-		return 0, 0, err
+		return WriteResult{}, err
 	}
-	return updated, inserted, nil
+	return res, nil
+}
+
+// attrEdit produces the edit that adds or drops the exclude-from-BOM tokens on
+// a footprint's (attr …) list, or changed=false when it already matches.
+func attrEdit(fp *node, want bool) (at, end int, text string, changed bool) {
+	const bom, pos = "exclude_from_bom", "exclude_from_pos_files"
+	attr := child(fp, "attr")
+	if attr == nil {
+		if !want {
+			return 0, 0, "", false
+		}
+		anchor := child(fp, "layer")
+		if anchor == nil {
+			return 0, 0, "", false
+		}
+		return anchor.end, anchor.end, "\n\t\t(attr " + bom + " " + pos + ")", true
+	}
+	has := map[string]bool{}
+	var toks []string
+	for _, a := range attr.kids[1:] {
+		has[a.atom] = true
+		toks = append(toks, a.atom)
+	}
+	var target []string
+	if want {
+		if has[bom] && has[pos] {
+			return 0, 0, "", false
+		}
+		target = append(target, toks...)
+		if !has[bom] {
+			target = append(target, bom)
+		}
+		if !has[pos] {
+			target = append(target, pos)
+		}
+	} else {
+		if !has[bom] && !has[pos] {
+			return 0, 0, "", false
+		}
+		for _, t := range toks {
+			if t != bom && t != pos {
+				target = append(target, t)
+			}
+		}
+	}
+	rebuilt := "(attr"
+	if len(target) > 0 {
+		rebuilt += " " + strings.Join(target, " ")
+	}
+	rebuilt += ")"
+	return attr.start, attr.end, rebuilt, true
 }
 
 func propValue(fp *node, name string) string {

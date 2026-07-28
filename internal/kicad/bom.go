@@ -15,6 +15,7 @@ type Item struct {
 	Quantity    int
 	LCSC        string
 	DNP         bool
+	ExcludeBOM  bool
 }
 
 func (it Item) ID() string {
