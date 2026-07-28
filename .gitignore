@@ -8,6 +8,9 @@
 # Test binary, built with `go test -c`
 *.test
 
+# Local build of the CLI
+/bomexpo
+
 # Code coverage profiles and other test artifacts
 *.out
 coverage.*

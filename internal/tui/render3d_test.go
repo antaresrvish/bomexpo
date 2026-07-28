@@ -5,27 +5,6 @@ import (
 	"testing"
 )
 
-func TestImageProtocol(t *testing.T) {
-	cases := map[string]struct {
-		env  map[string]string
-		want string
-	}{
-		"warp":     {map[string]string{"TERM_PROGRAM": "WarpTerminal", "TERM": "xterm-256color"}, ""},
-		"iterm":    {map[string]string{"TERM_PROGRAM": "iTerm.app", "TERM": "xterm-256color"}, "iterm2"},
-		"ghostty":  {map[string]string{"TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"}, "kitty"},
-		"terminal": {map[string]string{"TERM_PROGRAM": "Apple_Terminal", "TERM": "xterm-256color"}, ""},
-	}
-	for name, c := range cases {
-		os.Unsetenv("KITTY_WINDOW_ID")
-		for k, v := range c.env {
-			os.Setenv(k, v)
-		}
-		if got := imageProtocol(); got != c.want {
-			t.Errorf("%s: imageProtocol()=%q want %q", name, got, c.want)
-		}
-	}
-}
-
 func TestRenderBoard(t *testing.T) {
 	proj := os.Getenv("BOMEXPO_PROJ")
 	if proj == "" || testing.Short() {

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -73,63 +72,4 @@ func openExternal(path string) error {
 		cmd = exec.Command("xdg-open", path)
 	}
 	return cmd.Start()
-}
-
-// imageProtocol reports which inline-image escape protocol the terminal speaks,
-// or "" (e.g. Warp, Terminal.app) which means fall back to opening externally.
-func imageProtocol() string {
-	if os.Getenv("KITTY_WINDOW_ID") != "" || strings.Contains(os.Getenv("TERM"), "kitty") {
-		return "kitty"
-	}
-	switch os.Getenv("TERM_PROGRAM") {
-	case "iTerm.app", "WezTerm":
-		return "iterm2"
-	case "ghostty":
-		return "kitty"
-	}
-	return ""
-}
-
-func inlineImage(path string, cols, rows int) (string, bool) {
-	proto := imageProtocol()
-	if proto == "" {
-		return "", false
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	b64 := base64.StdEncoding.EncodeToString(data)
-	switch proto {
-	case "iterm2":
-		return fmt.Sprintf("\x1b]1337;File=inline=1;width=%d;height=%d;preserveAspectRatio=1:%s\a", cols, rows, b64), true
-	case "kitty":
-		return kittyImage(b64, cols, rows), true
-	}
-	return "", false
-}
-
-func kittyImage(b64 string, cols, rows int) string {
-	var b strings.Builder
-	const chunk = 4096
-	first := true
-	for len(b64) > 0 {
-		n := len(b64)
-		if n > chunk {
-			n = chunk
-		}
-		part := b64[:n]
-		b64 = b64[n:]
-		more := "0"
-		if len(b64) > 0 {
-			more = "1"
-		}
-		if first {
-			fmt.Fprintf(&b, "\x1b_Ga=T,f=100,c=%d,r=%d,m=%s;%s\x1b\\", cols, rows, more, part)
-			first = false
-		} else {
-			fmt.Fprintf(&b, "\x1b_Gm=%s;%s\x1b\\", more, part)
-		}
-	}
-	return b.String()
 }

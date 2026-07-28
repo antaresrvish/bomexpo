@@ -139,12 +139,6 @@ func (m Model) viewBoard(w, h int) string {
 	}
 	b := m.boardv
 
-	if b.img != "" {
-		if esc, ok := inlineImage(b.img, w-1, h-2); ok {
-			return accentStyle.Render("3D "+b.sideOr()) + dimStyle.Render("   t top · b bottom · i iso · o open in viewer") + "\n" + esc
-		}
-	}
-
 	var status string
 	switch {
 	case b.rendering:
