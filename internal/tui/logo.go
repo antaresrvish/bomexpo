@@ -14,12 +14,21 @@ const logoArt = `██████╗  ██████╗ ███╗   █
 ╚═════╝  ╚═════╝ ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝╚═╝      ╚═════╝ `
 
 // logo renders the banner with the solid blocks in the accent colour and the
-// shadow strokes dimmed, for a subtle 3D look.
+// shadow strokes dimmed, for a subtle 3D look. Every line is padded to the
+// widest so the block stays rectangular when it gets centred.
 func logo() string {
 	block := lipgloss.NewStyle().Foreground(cAccent)
 	shade := lipgloss.NewStyle().Foreground(cPanel)
-	var b strings.Builder
-	for _, line := range strings.Split(logoArt, "\n") {
+	lines := strings.Split(logoArt, "\n")
+	width := 0
+	for _, ln := range lines {
+		if w := lipgloss.Width(ln); w > width {
+			width = w
+		}
+	}
+	styled := make([]string, len(lines))
+	for i, line := range lines {
+		var b strings.Builder
 		var run []rune
 		var runBlock bool
 		flush := func() {
@@ -48,7 +57,10 @@ func logo() string {
 			run = append(run, r)
 		}
 		flush()
-		b.WriteByte('\n')
+		if pad := width - lipgloss.Width(line); pad > 0 {
+			b.WriteString(strings.Repeat(" ", pad))
+		}
+		styled[i] = b.String()
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return strings.Join(styled, "\n")
 }
