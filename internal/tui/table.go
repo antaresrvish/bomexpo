@@ -18,7 +18,7 @@ import (
 const dataTop = 4 // tab(1) + border(1) + colhead(1) + rule(1)
 
 func (m Model) visibleRows() int {
-	n := m.contentH() - 2
+	n := m.contentH() - 3 // header, rule, horizontal scrollbar
 	if n < 1 {
 		n = 1
 	}
@@ -35,11 +35,7 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.cycleTab(-1)
 	case "1":
 		return m.gotoTab(modeLoad)
-	case "2":
-		return m.gotoTab(modeOverview)
-	case "4":
-		return m.gotoTab(modeBoard)
-	case "5":
+	case "3":
 		return m.gotoTab(modeCheck)
 	case "up", "k":
 		m.cursor = max(0, m.cursor-1)
@@ -65,6 +61,8 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "a":
 		return m.startAutoAssign()
+	case "b":
+		return m.openRender()
 	case "r":
 		return m.refreshCmd()
 	case "o":
@@ -104,6 +102,13 @@ func (m Model) startAutoAssign() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) {
+	h := m.contentH()
+	tableW := m.tableW()
+	visRows := h - 3
+	vbarX := 2 + tableW
+	hbarY := 2 + h - 1
+	left := ms.Button == tea.MouseLeft
+
 	if wheel {
 		switch ms.Button {
 		case tea.MouseWheelUp:
@@ -114,17 +119,45 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		m.clampScroll()
 		return m, nil
 	}
-	if !click || ms.Button != tea.MouseLeft {
+
+	if !click { // motion: continue an in-progress scrollbar drag, or end it
+		if !left {
+			m.drag = dragNone
+			return m, nil
+		}
+		switch m.drag {
+		case dragVert:
+			return m.vScrollTo(ms.Y), nil
+		case dragHorz:
+			return m.hScrollTo(ms.X), nil
+		}
 		return m, nil
 	}
-	bx := ms.X - 2 // strip the panel bar + space
-	if bx < 0 || bx >= m.tableW() {
-		return m, nil // click landed on the sidebar
+	if !left {
+		return m, nil
+	}
+
+	// grab a scrollbar?
+	if ms.X == vbarX && ms.Y >= dataTop && ms.Y < dataTop+visRows {
+		m.drag = dragVert
+		return m.vScrollTo(ms.Y), nil
+	}
+	if ms.Y == hbarY {
+		if bx := ms.X - 2; bx >= 0 && bx < tableW {
+			m.drag = dragHorz
+			return m.hScrollTo(ms.X), nil
+		}
+	}
+	m.drag = dragNone
+
+	bx := ms.X - 2
+	if bx < 0 || bx >= tableW {
+		return m, nil // sidebar
 	}
 	c := layoutCols()
 	lineX := bx + clampInt(m.hoff, 0, m.maxHoff())
 
-	if ms.Y == 2 { // header row → sort by column
+	if ms.Y == 2 { // header → sort by column
 		if k, ok := colSortKey(c, lineX); ok {
 			if m.sort == k {
 				m.sortAsc = !m.sortAsc
@@ -136,7 +169,7 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		return m, nil
 	}
 	row := m.top + (ms.Y - dataTop)
-	if row >= 0 && row < len(m.items) {
+	if ms.Y >= dataTop && ms.Y < dataTop+visRows && row >= 0 && row < len(m.items) {
 		m.cursor = row
 		m.clampScroll()
 		if p := m.assigned[row]; p != nil && p.Datasheet != "" {
@@ -192,9 +225,9 @@ func sidebarW(w int) int {
 func (m Model) tableW() int {
 	w := m.contentW()
 	if sw := sidebarW(w); sw > 0 {
-		return w - sw - 1
+		return w - sw - 1 // 1 column for the vertical scrollbar / separator
 	}
-	return w
+	return w - 1 // reserve 1 column for the vertical scrollbar
 }
 
 func (m Model) maxHoff() int {
@@ -210,26 +243,30 @@ func (m Model) viewTable(w, h int) string {
 	}
 	c := layoutCols()
 	sideW := sidebarW(w)
-	tableW := w
+	tableW := w - 1
 	if sideW > 0 {
 		tableW = w - sideW - 1
 	}
-
 	tbl := m.tableBlock(c, tableW, h)
-	if sideW == 0 {
-		return strings.Join(tbl, "\n")
+	vbar := m.vScrollCol(h)
+	var side []string
+	if sideW > 0 {
+		side = m.sidebarBlock(sideW, h)
 	}
-	side := m.sidebarBlock(sideW, h)
-	bar := borderStyle.Render("│")
 	out := make([]string, h)
 	for i := 0; i < h; i++ {
-		out[i] = tbl[i] + bar + side[i]
+		line := tbl[i] + vbar[i]
+		if sideW > 0 {
+			line += side[i]
+		}
+		out[i] = line
 	}
 	return strings.Join(out, "\n")
 }
 
-// tableBlock renders the header, rule and visible rows at full width, then
-// horizontally crops each line to the viewport [hoff, hoff+tableW].
+// tableBlock renders the header, rule and visible rows at full width, crops
+// each to the viewport [hoff, hoff+tableW], and caps it with a horizontal
+// scrollbar on the last line.
 func (m Model) tableBlock(c cols, tableW, h int) []string {
 	full := c.fullWidth()
 	hoff := clampInt(m.hoff, 0, max(0, full-tableW))
@@ -244,14 +281,85 @@ func (m Model) tableBlock(c cols, tableW, h int) []string {
 	head := colHeadStyle.Render(padRender(m.headRow(c), full))
 	rule := borderStyle.Render(strings.Repeat("─", full))
 	lines := []string{crop(head), crop(rule)}
-	end := min(len(m.items), m.top+(h-2))
+	visRows := h - 3
+	end := min(len(m.items), m.top+visRows)
 	for i := m.top; i < end; i++ {
 		lines = append(lines, crop(m.rowView(i, c, sep)))
 	}
-	for len(lines) < h {
+	for len(lines) < h-1 {
 		lines = append(lines, spaces(tableW))
 	}
+	lines = append(lines, hScrollRow(tableW, full, tableW, hoff))
 	return lines[:h]
+}
+
+func hScrollRow(tableW, total, vis, hoff int) string {
+	if total <= vis {
+		return borderStyle.Render(strings.Repeat("─", tableW))
+	}
+	thumb := max(1, vis*tableW/total)
+	if thumb > tableW {
+		thumb = tableW
+	}
+	pos := hoff * (tableW - thumb) / max(1, total-vis)
+	var b strings.Builder
+	for i := 0; i < tableW; i++ {
+		if i >= pos && i < pos+thumb {
+			b.WriteString(accentStyle.Render("━"))
+		} else {
+			b.WriteString(borderStyle.Render("─"))
+		}
+	}
+	return b.String()
+}
+
+// vScrollCol is the vertical scrollbar drawn between the table and the sidebar.
+func (m Model) vScrollCol(h int) []string {
+	total := len(m.items)
+	vis := h - 3
+	top := clampInt(m.top, 0, max(0, total-vis))
+	trackTop, trackLen := 2, h-3
+	thumb, pos := trackLen, 0
+	if total > vis && vis > 0 {
+		thumb = max(1, vis*trackLen/total)
+		if thumb > trackLen {
+			thumb = trackLen
+		}
+		pos = top * (trackLen - thumb) / max(1, total-vis)
+	}
+	col := make([]string, h)
+	for i := 0; i < h; i++ {
+		if r := i - trackTop; i >= trackTop && i < trackTop+trackLen && r >= pos && r < pos+thumb {
+			col[i] = accentStyle.Render("█")
+		} else {
+			col[i] = borderStyle.Render("│")
+		}
+	}
+	return col
+}
+
+func (m Model) vScrollTo(screenY int) Model {
+	total := len(m.items)
+	vis := m.visibleRows()
+	if total <= vis {
+		return m
+	}
+	rel := clampInt(screenY-dataTop, 0, vis-1)
+	m.top = clampInt(rel*(total-vis)/max(1, vis-1), 0, total-vis)
+	if m.cursor < m.top {
+		m.cursor = m.top
+	}
+	if m.cursor >= m.top+vis {
+		m.cursor = m.top + vis - 1
+	}
+	return m
+}
+
+func (m Model) hScrollTo(screenX int) Model {
+	tableW := m.tableW()
+	bx := clampInt(screenX-2, 0, tableW-1)
+	m.hoff = clampInt(bx*m.maxHoff()/max(1, tableW-1), 0, m.maxHoff())
+	return m
 }
 
 func (m Model) headRow(c cols) string {
@@ -274,13 +382,13 @@ func (m Model) headRow(c cols) string {
 	return cells[0] + " " + strings.Join(cells[1:], " | ")
 }
 
-// sidebarBlock is the right panel: a compact overview on top and a fixed,
-// shrunk board render below, split in half.
+// sidebarBlock is the right panel: boxed overview stats on top and a fixed,
+// shrunk board render (traces on) below, split in half.
 func (m Model) sidebarBlock(sideW, h int) []string {
 	topH := (h - 1) / 2
 	botH := h - 1 - topH
 	lines := make([]string, 0, h)
-	ov := m.compactOverview()
+	ov := m.compactOverview(sideW)
 	for i := 0; i < topH; i++ {
 		if i < len(ov) {
 			lines = append(lines, padRender(ov[i], sideW))
@@ -289,8 +397,9 @@ func (m Model) sidebarBlock(sideW, h int) []string {
 		}
 	}
 	lines = append(lines, borderStyle.Render(strings.Repeat("─", sideW)))
-	bd := m.miniBoard(sideW, botH)
-	for i := 0; i < botH; i++ {
+	lines = append(lines, padRender(accentStyle.Render("Board")+dimStyle.Render("  b → 3D render · traces on"), sideW))
+	bd := m.miniBoard(sideW, botH-1)
+	for i := 0; i < botH-1; i++ {
 		if i < len(bd) {
 			lines = append(lines, padRender(bd[i], sideW))
 		} else {
@@ -300,7 +409,7 @@ func (m Model) sidebarBlock(sideW, h int) []string {
 	return lines
 }
 
-func (m Model) compactOverview() []string {
+func (m Model) compactOverview(sideW int) []string {
 	var un, oos, mm int
 	for i := range m.items {
 		switch m.stateOf(i) {
@@ -314,31 +423,30 @@ func (m Model) compactOverview() []string {
 	}
 	assigned, _ := m.counts()
 	active := m.activeCount()
-	frac := 0.0
-	if active > 0 {
-		frac = float64(assigned) / float64(active)
-	}
-	kv := func(k, v string) string { return dimStyle.Render(pad(k, 11)) + v }
+	tw := (sideW - 1) / 2
+	tile := func(label, value string, vs lipgloss.Style) string { return sideTile(label, value, vs, tw) }
+	row := func(a, b string) string { return lipgloss.JoinHorizontal(lipgloss.Top, a, " ", b) }
+	grid := lipgloss.JoinVertical(lipgloss.Left,
+		row(tile("assigned", fmt.Sprintf("%d/%d", assigned, active), okStyle),
+			tile("unassigned", fmt.Sprintf("%d", un), hotStyle(un, warnStyle))),
+		row(tile("no stock", fmt.Sprintf("%d", oos), hotStyle(oos, badStyle)),
+			tile("mismatch", fmt.Sprintf("%d", mm), hotStyle(mm, warnStyle))),
+		row(tile("excluded", fmt.Sprintf("%d", m.excludedCount()), subtleStyle),
+			tile("dnp", fmt.Sprintf("%d", m.dnpCount()), hotStyle(m.dnpCount(), warnStyle))),
+	)
 	nRot := len(export.RotationFixes(m.placements, m.excludeSet(), m.rotOverrideMap()))
 	cost, complete := m.costAt(1)
 	costStr := fmt.Sprintf("$%.2f", cost)
 	if !complete {
 		costStr += "*"
 	}
-	return []string{
-		accentStyle.Render("Overview"),
-		progressBar(frac, 12) + subtleStyle.Render(fmt.Sprintf(" %d%%", int(frac*100+0.5))),
-		kv("assigned", okStyle.Render(fmt.Sprintf("%d/%d", assigned, active))),
-		kv("unassigned", hotStyle(un, warnStyle).Render(fmt.Sprintf("%d", un))),
-		kv("no stock", hotStyle(oos, badStyle).Render(fmt.Sprintf("%d", oos))),
-		kv("mismatch", hotStyle(mm, warnStyle).Render(fmt.Sprintf("%d", mm))),
-		kv("excluded", fmt.Sprintf("%d", m.excludedCount())),
-		kv("dnp", fmt.Sprintf("%d", m.dnpCount())),
-		kv("board", boardSize(m.boardW, m.boardH)),
-		kv("layers", dash(m.layers > 0, fmt.Sprintf("%d", m.layers))),
-		kv("est cost", costStr+dimStyle.Render(" qty1")),
+	kv := func(k, v string) string { return dimStyle.Render(pad(k, 9)) + v }
+	lines := strings.Split(grid, "\n")
+	return append(lines,
+		kv("board", boardSize(m.boardW, m.boardH)+dimStyle.Render(fmt.Sprintf("  %dL", m.layers))),
+		kv("cost", okStyle.Render(costStr)+dimStyle.Render(" qty1")),
 		kv("rotation", dash(nRot > 0, fmt.Sprintf("%d fixed", nRot))),
-	}
+	)
 }
 
 func (m Model) miniBoard(w, h int) []string {
@@ -351,7 +459,7 @@ func (m Model) miniBoard(w, h int) []string {
 			hl[d] = true
 		}
 	}
-	img := render.Render(m.board, m.placements, render.Options{W: w, H: h, Highlight: hl})
+	img := render.Render(m.board, m.placements, render.Options{W: w, H: h, ShowCopper: true, Highlight: hl})
 	if img == "" {
 		return []string{dimStyle.Render("board too small")}
 	}

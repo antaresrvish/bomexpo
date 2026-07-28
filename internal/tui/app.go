@@ -69,8 +69,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				exb++
 			}
 		}
-		m.mode = modeOverview
-		m.cursor, m.top = 0, 0
+		m.mode = modeTable
+		m.cursor, m.top, m.hoff = 0, 0, 0
 		m.sort, m.sortAsc = sortNone, false
 		m.err = ""
 		m.status = fmt.Sprintf("%s · %d components in %d line items", msg.name, len(m.placements), len(m.items))
@@ -151,14 +151,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case renderDoneMsg:
 		m.boardv.rendering = false
+		m.loading = false
 		if msg.err != nil {
-			m.boardv.rerr = msg.err.Error()
+			m.err = "render failed: " + msg.err.Error()
 			return m, nil
 		}
-		m.boardv.rerr = ""
-		if msg.side == m.boardv.sideOr() {
-			m.boardv.img = msg.path
-		}
+		m.boardv.img = msg.path
+		openExternal(msg.path)
+		m.flash = "opened 3D render in your viewer"
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -182,14 +182,10 @@ func (m Model) routeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeLoad:
 		return m.updateLoad(msg)
-	case modeOverview:
-		return m.updateOverview(msg)
 	case modeTable:
 		return m.updateTable(msg)
 	case modeSearch:
 		return m.updateSearchKey(msg)
-	case modeBoard:
-		return m.updateBoard(msg)
 	case modeCheck:
 		return m.updateCheck(msg)
 	}
@@ -203,14 +199,10 @@ func (m Model) routeMouse(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		}
 	}
 	switch m.mode {
-	case modeOverview:
-		return m.mouseOverview(ms, click, wheel)
 	case modeTable:
 		return m.mouseTable(ms, click, wheel)
 	case modeSearch:
 		return m.mouseSearch(ms, click, wheel)
-	case modeBoard:
-		return m.mouseBoard(ms, click, wheel)
 	case modeCheck:
 		return m.mouseCheck(ms, click, wheel)
 	}
@@ -219,18 +211,6 @@ func (m Model) routeMouse(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 
 func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	switch md {
-	case modeBoard:
-		if m.board == nil {
-			m.status = "no board outline"
-			return m, nil
-		}
-		m.mode = md
-		if m.boardv.img == "" && !m.boardv.rendering && m.pcbPath != "" {
-			m.boardv.side = m.boardv.sideOr()
-			m.boardv.rendering = true
-			return m, m.renderCmd(m.boardv.side)
-		}
-		return m, nil
 	case modeCheck:
 		m.check.setDefault(m.pcbPath)
 		m.check.out.Focus()
@@ -281,14 +261,10 @@ func (m Model) View() tea.View {
 	switch m.mode {
 	case modeLoad:
 		title, body = "Open project", m.viewLoad(cw, ch)
-	case modeOverview:
-		title, body = "Overview"+projSuffix(m.name), m.viewOverview(cw, ch)
 	case modeTable:
 		title, body = "Components"+projSuffix(m.name), m.viewTable(cw, ch)
 	case modeSearch:
 		title, body = "Search LCSC", m.viewSearch(cw, ch)
-	case modeBoard:
-		title, body = "Board"+projSuffix(m.name), m.viewBoard(cw, ch)
 	case modeCheck:
 		title, body = "Final check & export", m.viewCheck(cw, ch)
 	}
@@ -445,14 +421,10 @@ func (m Model) helpLine() string {
 	switch m.mode {
 	case modeLoad:
 		hints = [][2]string{{"tab", "complete"}, {"enter", "open"}, {"ctrl+c", "quit"}}
-	case modeOverview:
-		hints = [][2]string{{"enter", "next"}, {"a", "auto-assign"}, {"r", "refresh"}, {"w", "save"}, {"tab", "switch"}}
 	case modeTable:
-		hints = [][2]string{{"enter", "assign"}, {"a", "auto-assign"}, {"o", "rotate"}, {"w", "save"}, {"x", "exclude"}, {"tab", "switch"}}
+		hints = [][2]string{{"enter", "assign"}, {"a", "auto"}, {"b", "3D"}, {"o", "rotate"}, {"w", "save"}, {"←→", "scroll"}, {"tab", "switch"}}
 	case modeSearch:
 		hints = [][2]string{{"type", "search"}, {"↑↓", "results"}, {"enter", "pick"}, {"^f/^t/^s", "filters"}, {"esc", "back"}}
-	case modeBoard:
-		hints = [][2]string{{"o", "3D render"}, {"t/b/i", "angle"}, {"c", "traces"}, {"tab", "switch"}, {"esc", "back"}}
 	case modeCheck:
 		hints = [][2]string{{"click", "go to part"}, {"enter", "export"}, {"tab", "switch"}, {"esc", "back"}}
 	}

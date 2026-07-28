@@ -30,11 +30,15 @@ var tabs = []struct {
 	label string
 }{
 	{modeLoad, "Load"},
-	{modeOverview, "Overview"},
 	{modeTable, "Components"},
-	{modeBoard, "Board"},
 	{modeCheck, "Check"},
 }
+
+const (
+	dragNone = iota
+	dragVert
+	dragHorz
+)
 
 type Model struct {
 	client *lcsc.Client
@@ -66,6 +70,7 @@ type Model struct {
 	cursor int
 	top    int
 	hoff   int
+	drag   int
 
 	sort    sortKey
 	sortAsc bool

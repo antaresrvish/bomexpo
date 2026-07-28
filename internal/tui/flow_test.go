@@ -54,12 +54,6 @@ func TestFullFlow(t *testing.T) {
 	t.Logf("assigned %s -> %s (%s)", m.items[0].ID(), m.items[0].LCSC, m.assigned[0].Model)
 	mustRender(t, m, "table-after-assign")
 
-	if m.board != nil {
-		m.mode = modeBoard
-		mustRender(t, m, "board")
-		m.mode = modeTable
-	}
-
 	m.mode = modeCheck
 	m.check.setDefault(m.pcbPath)
 	mustRender(t, m, "check")
@@ -87,8 +81,6 @@ func mustRender(t *testing.T, m Model, name string) {
 		s = m.viewTable(w, h)
 	case modeSearch:
 		s = m.viewSearch(w, h)
-	case modeBoard:
-		s = m.viewBoard(w, h)
 	case modeCheck:
 		s = m.viewCheck(w, h)
 	default:
