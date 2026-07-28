@@ -454,22 +454,56 @@ func (m Model) compactOverview(sideW int) []string {
 			tile("unassigned", fmt.Sprintf("%d", un), hotStyle(un, warnStyle))),
 		row(tile("no stock", fmt.Sprintf("%d", oos), hotStyle(oos, badStyle)),
 			tile("mismatch", fmt.Sprintf("%d", mm), hotStyle(mm, warnStyle))),
-		row(tile("excluded", fmt.Sprintf("%d", m.excludedCount()), subtleStyle),
-			tile("dnp", fmt.Sprintf("%d", m.dnpCount()), hotStyle(m.dnpCount(), warnStyle))),
 	)
 	nRot := len(export.RotationFixes(m.placements, m.excludeSet(), m.rotOverrideMap()))
-	cost, complete := m.costAt(1)
-	costStr := fmt.Sprintf("$%.2f", cost)
-	if !complete {
-		costStr += "*"
-	}
-	kv := func(k, v string) string { return dimStyle.Render(pad(k, 9)) + v }
+	summary := dimStyle.Render(fmt.Sprintf("excluded %d · dnp %d · rot %d", m.excludedCount(), m.dnpCount(), nRot))
+
 	lines := strings.Split(grid, "\n")
-	return append(lines,
-		kv("board", boardSize(m.boardW, m.boardH)+dimStyle.Render(fmt.Sprintf("  %dL", m.layers))),
-		kv("cost", okStyle.Render(costStr)+dimStyle.Render(" qty1")),
-		kv("rotation", dash(nRot > 0, fmt.Sprintf("%d fixed", nRot))),
-	)
+	lines = append(lines, summary)
+	return append(lines, m.selectedInspector(sideW)...)
+}
+
+// selectedInspector shows the highlighted row's part detail so the side panel
+// doubles as a live inspector.
+func (m Model) selectedInspector(sideW int) []string {
+	i := m.cursor
+	if i < 0 || i >= len(m.items) {
+		return nil
+	}
+	it := m.items[i]
+	ref := it.ID()
+	if it.PerBoard() > 1 {
+		ref = fmt.Sprintf("%s ×%d", it.ID(), it.PerBoard())
+	}
+	icon, note, ns := stateDecor(m.stateOf(i))
+	if it.DNP {
+		note, ns = "do not populate", dimStyle
+	} else if note == "" {
+		note, ns = "ready", okStyle
+	}
+	lines := []string{
+		accentStyle.Render("Selected"),
+		codeStyle.Render(ref) + "  " + subtleStyle.Render(trunc(it.Value, sideW-lipgloss.Width(ref)-2)),
+		dimStyle.Render(trunc(it.Footprint, sideW)),
+		icon + " " + ns.Render(trunc(note, sideW-2)),
+	}
+	if p := m.assigned[i]; p != nil {
+		head := codeStyle.Render(it.LCSC)
+		if p.Brand != "" {
+			head += dimStyle.Render(" · ") + subtleStyle.Render(trunc(p.Brand, sideW-lipgloss.Width(it.LCSC)-3))
+		}
+		lines = append(lines,
+			head,
+			dimStyle.Render(trunc(p.Description(), sideW)),
+			subtleStyle.Render(fmt.Sprintf("stock %s · %s", groupThousands(p.Stock), p.PriceLabel())),
+		)
+		if s := p.Specs(); s != "" {
+			lines = append(lines, dimStyle.Render(trunc(s, sideW)))
+		}
+	} else if it.LCSC != "" {
+		lines = append(lines, codeStyle.Render(it.LCSC)+dimStyle.Render(" loading…"))
+	}
+	return lines
 }
 
 func (m Model) miniBoard(w, h int) []string {
