@@ -19,6 +19,7 @@ type Design struct {
 	Items      []Item
 	Placements []Placement
 	Board      *Board
+	Nets       []Net // empty for a CSV design: a BOM carries no connectivity
 	Layers     int
 	BoardW     float64
 	BoardH     float64
@@ -58,6 +59,7 @@ func Load(path, cplPath string) (*Design, error) {
 		Items:      p.BOM(),
 		Placements: p.Placements(),
 		Board:      p.Board(),
+		Nets:       p.Nets(),
 		Layers:     p.Layers,
 		BoardW:     p.BoardW,
 		BoardH:     p.BoardH,

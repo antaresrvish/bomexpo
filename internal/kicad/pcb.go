@@ -22,6 +22,14 @@ type Component struct {
 	RotOverride    int
 	HasRotOverride bool
 	BodyW, BodyH   float64
+	// Nets are the distinct net names this footprint's pads sit on.
+	Nets []string
+}
+
+// Net is one net and the components that touch it.
+type Net struct {
+	Name string
+	Refs []string
 }
 
 type Project struct {
@@ -35,6 +43,30 @@ type Project struct {
 	BoardW     float64
 	BoardH     float64
 	Min, Max   Point
+}
+
+// Nets lists the nets the components sit on, busiest first so a picker shows
+// the power and ground rails at the top. Nets in the file's net table that no
+// pad actually uses are left out: nothing would match them.
+func (p *Project) Nets() []Net {
+	byName := map[string][]string{}
+	for _, c := range p.Components {
+		for _, n := range c.Nets {
+			byName[n] = append(byName[n], c.Ref)
+		}
+	}
+	out := make([]Net, 0, len(byName))
+	for name, refs := range byName {
+		sort.SliceStable(refs, func(i, j int) bool { return refLess(refs[i], refs[j]) })
+		out = append(out, Net{Name: name, Refs: refs})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if a, b := len(out[i].Refs), len(out[j].Refs); a != b {
+			return a > b
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
 }
 
 func LoadProject(path string) (*Project, error) {
@@ -58,10 +90,22 @@ func LoadProject(path string) (*Project, error) {
 		Min:     Point{math.Inf(1), math.Inf(1)},
 		Max:     Point{math.Inf(-1), math.Inf(-1)},
 	}
+	// The net table comes first in practice, but read it in its own pass so pad
+	// nets resolve even in a file that orders things differently. Some writers
+	// emit a bare "(net 3)" on a pad, with the name only in the table.
+	netNames := map[int]string{}
+	for _, n := range root.kids {
+		if n.head() == "net" {
+			if name := atom(n, 2); name != "" {
+				netNames[int(num(atom(n, 1)))] = name
+			}
+		}
+	}
+
 	for _, n := range root.kids {
 		switch n.head() {
 		case "footprint", "module":
-			if c, ok := parseFootprint(n); ok {
+			if c, ok := parseFootprint(n, netNames); ok {
 				p.Components = append(p.Components, c)
 			}
 		case "gr_line", "gr_arc", "gr_rect", "gr_circle":
@@ -161,13 +205,14 @@ func resolvePCB(path string) (string, error) {
 	}
 }
 
-func parseFootprint(n *node) (Component, bool) {
+func parseFootprint(n *node, netNames map[int]string) (Component, bool) {
 	c := Component{Layer: "top", Rot: 0}
 	if len(n.kids) > 1 {
 		c.Footprint = shortFootprint(n.kids[1].atom)
 	}
 	minX, minY := math.Inf(1), math.Inf(1)
 	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	onNet := map[string]bool{} // several pads share a net; list it once
 	for _, k := range n.kids {
 		switch k.head() {
 		case "layer":
@@ -211,6 +256,17 @@ func parseFootprint(n *node) (Component, bool) {
 			sw, sh := num(atom(sz, 1)), num(atom(sz, 2))
 			minX, maxX = math.Min(minX, px-sw/2), math.Max(maxX, px+sw/2)
 			minY, maxY = math.Min(minY, py-sh/2), math.Max(maxY, py+sh/2)
+
+			if nn := child(k, "net"); nn != nil {
+				name := atom(nn, 2)
+				if name == "" {
+					name = netNames[int(num(atom(nn, 1)))]
+				}
+				if name != "" && !onNet[name] {
+					onNet[name] = true
+					c.Nets = append(c.Nets, name)
+				}
+			}
 		}
 	}
 	if c.Ref == "" {
@@ -351,6 +407,7 @@ func (p *Project) BOM() []Item {
 			Value: c.Value, Footprint: c.Footprint, LCSC: c.LCSC,
 			DNP: c.DNP, ExcludeBOM: c.ExcludeBOM,
 			RotOverride: c.RotOverride, HasRotOverride: c.HasRotOverride,
+			Nets: c.Nets,
 		})
 	}
 	return mergeItems(rows)

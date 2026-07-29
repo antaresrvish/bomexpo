@@ -18,6 +18,9 @@ type Item struct {
 	ExcludeBOM     bool
 	RotOverride    int
 	HasRotOverride bool
+	// Nets are every net the grouped components touch. Empty for a BOM CSV,
+	// which carries no connectivity.
+	Nets []string
 }
 
 func (it Item) ID() string {
@@ -94,7 +97,7 @@ func mergeItems(items []Item) []Item {
 		it, ok := groups[k]
 		if !ok {
 			cp := in
-			cp.Designators, cp.Bases, cp.Quantity = nil, nil, 0
+			cp.Designators, cp.Bases, cp.Quantity, cp.Nets = nil, nil, 0, nil
 			groups[k] = &cp
 			order = append(order, k)
 			it = &cp
@@ -104,6 +107,7 @@ func mergeItems(items []Item) []Item {
 		}
 		it.Designators = append(it.Designators, in.Designators...)
 		it.Bases = append(it.Bases, in.Bases...)
+		it.Nets = append(it.Nets, in.Nets...)
 		it.Quantity += max(in.Quantity, len(in.Designators))
 		if it.LCSC == "" {
 			it.LCSC = in.LCSC
@@ -118,9 +122,26 @@ func mergeItems(items []Item) []Item {
 		it := groups[k]
 		sort.SliceStable(it.Bases, func(i, j int) bool { return refLess(it.Bases[i], it.Bases[j]) })
 		sort.SliceStable(it.Designators, func(i, j int) bool { return refLess(it.Designators[i], it.Designators[j]) })
+		it.Nets = uniqueSorted(it.Nets)
 		out = append(out, *it)
 	}
 	sortItems(out)
+	return out
+}
+
+func uniqueSorted(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 
