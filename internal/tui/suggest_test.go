@@ -178,68 +178,83 @@ func TestSuggestNavigationAndAcceptKeys(t *testing.T) {
 	}
 }
 
-// Down is how you get out of the query and into the rows — the dropdown has to
-// get out of the way, and the filter has to stay applied.
-func TestDownLeavesTheQueryForTheTable(t *testing.T) {
-	m := suggestModel(t, "net:GND")
+// The arrows belong to the dropdown while the query has focus — that's where
+// you're picking. Enter is what hands the keyboard to the rows.
+func TestArrowsStayInTheDropdown(t *testing.T) {
+	m := suggestModel(t, "net:")
 
-	for _, code := range []rune{tea.KeyDown, tea.KeyUp} {
-		m := suggestModel(t, "net:GND")
-		mm, _ := m.updateFilterKey(tea.KeyPressMsg{Code: code})
-		m = mm.(Model)
-
-		if m.filter.open {
-			t.Errorf("%v should hand the keyboard to the table", code)
-		}
-		if m.suggestBox(80) != nil {
-			t.Errorf("%v should dismiss the dropdown", code)
-		}
-		if !m.filter.f.active() || shown(m) != "C1,C2,R1,D1" {
-			t.Errorf("%v must keep the filter applied, got %q", code, shown(m))
-		}
-		if m.cursor != 0 {
-			t.Errorf("%v should land on the first row, got %d", code, m.cursor)
-		}
-	}
-
-	// and from there the arrows walk the filtered rows
 	mm, _ := m.updateFilterKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = mm.(Model)
-	mm, _ = m.updateTable(tea.KeyPressMsg{Code: tea.KeyDown})
-	m = mm.(Model)
-	if m.cursor != 1 {
-		t.Errorf("cursor = %d, want 1 after a down in the table", m.cursor)
+	if !m.filter.open {
+		t.Fatal("down should not leave the query")
 	}
-	if got := m.items[m.sel()].ID(); got != "C2" {
-		t.Errorf("selected %s, want C2 — the second row of the filtered set", got)
+	if m.filter.sug != 1 {
+		t.Errorf("sug = %d, want 1 — down moves the highlight", m.filter.sug)
 	}
-	// the bar stays visible so the filter is never in force invisibly
-	if !m.filterBarVisible() {
-		t.Error("the filter bar should still show what's filtering")
+	if m.suggestBox(80) == nil {
+		t.Error("the dropdown should still be open")
+	}
+	mm, _ = m.updateFilterKey(tea.KeyPressMsg{Code: tea.KeyUp})
+	if got := mm.(Model).filter.sug; got != 0 {
+		t.Errorf("sug = %d, want 0 after an up", got)
 	}
 }
 
-func TestEnterCompletesThenFinishes(t *testing.T) {
-	// on a partial, enter completes rather than closing
-	m := suggestModel(t, "net:sp")
+func TestEnterHandsOverToTheTable(t *testing.T) {
+	m := suggestModel(t, "net:GND")
 	mm, _ := m.updateFilterKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = mm.(Model)
-	if !m.filter.open {
-		t.Error("enter on a partial should complete, not close")
+
+	if m.filter.open {
+		t.Error("enter should hand the keyboard to the table")
 	}
-	if got := m.filter.field.Value(); got != "net:SPI_SCK " {
-		t.Errorf("enter → %q", got)
+	if m.suggestBox(80) != nil {
+		t.Error("enter should dismiss the dropdown")
+	}
+	if !m.filter.f.active() || shown(m) != "C1,C2,R1,D1" {
+		t.Errorf("enter must keep the filter applied, got %q", shown(m))
+	}
+	if m.cursor != 0 {
+		t.Errorf("cursor = %d, want the first row", m.cursor)
+	}
+	// the bar stays visible so a filter is never in force invisibly
+	if !m.filterBarVisible() {
+		t.Error("the filter bar should still show what's filtering")
 	}
 
-	// on an exact value there's nothing to complete, so enter is done
-	m = suggestModel(t, "net:GND")
-	mm, _ = m.updateFilterKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	// and from there the arrows walk the filtered rows
+	mm, _ = m.updateTable(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = mm.(Model)
-	if m.filter.open {
-		t.Error("enter on an exact value should close the bar")
+	if got := m.items[m.sel()].ID(); got != "C2" {
+		t.Errorf("selected %s, want C2 — the second filtered row", got)
 	}
-	if !m.filter.f.active() {
-		t.Error("closing should keep the filter")
+}
+
+// The bar says which half has the keyboard, since that's the only cue.
+func TestFilterBarShowsWhereFocusIs(t *testing.T) {
+	open := suggestModel(t, "net:GND")
+	if got := stripANSI(open.filterBar(100)); !strings.Contains(got, "▸") {
+		t.Errorf("a focused query should be marked: %q", got)
+	}
+	mm, _ := open.updateFilterKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := stripANSI(mm.(Model).filterBar(100)); strings.Contains(got, "▸") {
+		t.Errorf("an unfocused query should drop the marker: %q", got)
+	}
+}
+
+// Tab is the completion key, so a half-typed value finishes without leaving.
+func TestTabCompletesWithoutLeaving(t *testing.T) {
+	m := suggestModel(t, "net:sp")
+	mm, _ := m.updateFilterKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = mm.(Model)
+	if !m.filter.open {
+		t.Error("tab should keep the query focused")
+	}
+	if got := m.filter.field.Value(); got != "net:SPI_SCK " {
+		t.Errorf("tab → %q", got)
+	}
+	if got, want := shown(m), "R1"; got != want {
+		t.Errorf("the completed filter should apply: %s, want %s", got, want)
 	}
 }
 

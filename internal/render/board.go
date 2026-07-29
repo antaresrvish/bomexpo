@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"bomexpo/internal/kicad"
 )
@@ -36,20 +35,6 @@ var palette = map[byte]color.Color{
 	cHighlight:   lipgloss.Color("#ff477e"),
 }
 
-// dimPalette is the same board in near-background tones. Used when the drawing
-// sits behind text, where anything brighter would fight with it.
-var dimPalette = map[byte]color.Color{
-	cCopperInner: lipgloss.Color("#1c1c16"),
-	cCopperBot:   lipgloss.Color("#182530"),
-	cCopperTop:   lipgloss.Color("#302014"),
-	cVia:         lipgloss.Color("#4a3c18"),
-	cOutline:     lipgloss.Color("#3f5133"),
-	cBottom:      lipgloss.Color("#3a2547"),
-	cTop:         lipgloss.Color("#1e4557"),
-	cMatch:       lipgloss.Color("#5a4620"),
-	cHighlight:   lipgloss.Color("#5c2137"),
-}
-
 type Options struct {
 	W, H       int
 	ShowCopper bool
@@ -57,9 +42,7 @@ type Options struct {
 	Highlight map[string]bool
 	// Match is drawn a step below Highlight, for everything a filter selected.
 	// Nil means no filter, so nothing is singled out.
-	Match map[string]bool
-	// Dim draws everything in muted tones, for a backdrop behind text.
-	Dim        bool
+	Match      map[string]bool
 	Zoom       float64
 	PanX, PanY float64
 }
@@ -122,23 +105,15 @@ func (c *canvas) rectOutline(cx, cy, hw, hh int, v byte) {
 }
 
 type transform struct {
-	scale      float64 // x, and y too unless scaleY is set
-	scaleY     float64
+	scale      float64
 	cx, cy     float64
 	ox, oy     float64
 	panX, panY float64
 }
 
-func (t transform) sy() float64 {
-	if t.scaleY > 0 {
-		return t.scaleY
-	}
-	return t.scale
-}
-
 func (t transform) apply(p kicad.Point) (int, int) {
 	x := (p.X-t.cx)*t.scale + t.ox + t.panX
-	y := (p.Y-t.cy)*t.sy() + t.oy + t.panY
+	y := (p.Y-t.cy)*t.scale + t.oy + t.panY
 	return int(math.Round(x)), int(math.Round(y))
 }
 
@@ -157,33 +132,16 @@ func Render(b *kicad.Board, placements []kicad.Placement, opt Options) string {
 	if zoom <= 0 {
 		zoom = 1
 	}
-	// A framed drawing gets a margin so edge traces aren't clipped and keeps the
-	// board's true proportions.
+	// a margin so edge traces aren't clipped
 	scale := math.Min((float64(pw)-4)/bw, (float64(ph)-4)/bh) * zoom
-	scaleY := 0.0
-	if opt.Dim {
-		// A backdrop fills the page instead, stretching to reach both edges —
-		// but only so far. Past maxStretch a long thin board would read as
-		// square, and its shape is one of the things you're checking.
-		const maxStretch = 1.5
-		sx, sy := float64(pw)/bw*zoom, float64(ph)/bh*zoom
-		if sx > sy*maxStretch {
-			sx = sy * maxStretch
-		}
-		if sy > sx*maxStretch {
-			sy = sx * maxStretch
-		}
-		scale, scaleY = sx, sy
-	}
 	t := transform{
-		scale:  scale,
-		scaleY: scaleY,
-		cx:     (b.Min.X + b.Max.X) / 2,
-		cy:     (b.Min.Y + b.Max.Y) / 2,
-		ox:     float64(pw) / 2,
-		oy:     float64(ph) / 2,
-		panX:   opt.PanX,
-		panY:   opt.PanY,
+		scale: scale,
+		cx:    (b.Min.X + b.Max.X) / 2,
+		cy:    (b.Min.Y + b.Max.Y) / 2,
+		ox:    float64(pw) / 2,
+		oy:    float64(ph) / 2,
+		panX:  opt.PanX,
+		panY:  opt.PanY,
 	}
 
 	if opt.ShowCopper {
@@ -229,13 +187,12 @@ func Render(b *kicad.Board, placements []kicad.Placement, opt Options) string {
 		if opt.Highlight[p.Designator] {
 			col = cHighlight
 		}
-		// a stretched backdrop stretches the parts with it
-		hw, hh := int(p.BodyW/2*t.scale), int(p.BodyH/2*t.sy())
+		hw, hh := int(p.BodyW/2*scale), int(p.BodyH/2*scale)
 		if p.BodyW <= 0 {
-			hw = int(t.scale * 0.3)
+			hw = int(scale * 0.3)
 		}
 		if p.BodyH <= 0 {
-			hh = int(t.sy() * 0.3)
+			hh = int(scale * 0.3)
 		}
 		if hw >= 2 && hh >= 2 {
 			cv.rectOutline(x, y, hw, hh, col)
@@ -244,68 +201,7 @@ func Render(b *kicad.Board, placements []kicad.Placement, opt Options) string {
 		}
 	}
 
-	if opt.Dim {
-		return composeDim(cv, opt.W, opt.H)
-	}
 	return compose(cv, opt.W, opt.H)
-}
-
-// Cells draws the board as one styled string per character cell, so a caller can
-// composite something on top of it. Empty cells come back as a plain space, and
-// the result is nil when nothing was drawn at all.
-func Cells(b *kicad.Board, placements []kicad.Placement, opt Options) [][]string {
-	img := Render(b, placements, opt)
-	if strings.TrimSpace(ansi.Strip(img)) == "" {
-		return nil
-	}
-	rows := strings.Split(img, "\n")
-	out := make([][]string, len(rows))
-	for i, row := range rows {
-		out[i] = splitCells(row, opt.W)
-	}
-	return out
-}
-
-// splitCells breaks a styled row into per-cell strings, keeping each cell's own
-// escapes so it can be dropped anywhere.
-func splitCells(row string, w int) []string {
-	cells := make([]string, w)
-	for x := 0; x < w; x++ {
-		c := ansi.Cut(row, x, x+1)
-		if ansi.Strip(c) == "" {
-			c = " "
-		}
-		cells[x] = c
-	}
-	return cells
-}
-
-// composeDim renders the same geometry in muted tones, for use as a backdrop
-// that text has to stay readable over.
-func composeDim(cv *canvas, cols, rows int) string {
-	var b strings.Builder
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
-			top := cv.px[(2*r)*cv.w+c]
-			bot := cv.px[(2*r+1)*cv.w+c]
-			if top == cEmpty && bot == cEmpty {
-				b.WriteByte(' ')
-				continue
-			}
-			st := lipgloss.NewStyle()
-			if top != cEmpty {
-				st = st.Foreground(dimPalette[top])
-			}
-			if bot != cEmpty {
-				st = st.Background(dimPalette[bot])
-			}
-			b.WriteString(st.Render("▀"))
-		}
-		if r < rows-1 {
-			b.WriteByte('\n')
-		}
-	}
-	return b.String()
 }
 
 func compose(cv *canvas, cols, rows int) string {

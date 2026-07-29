@@ -106,17 +106,34 @@ func TestCheckPageCarriesTheBoard(t *testing.T) {
 	if !strings.Contains(out, "Volume pricing") {
 		t.Error("the pricing table should still be there")
 	}
-	// the board is the page's backdrop, so its blocks show between the text
 	if !strings.Contains(out, "▀") {
-		t.Error("the backdrop should have drawn something")
+		t.Error("the board pane should have drawn something")
 	}
-	// and a line says what's behind there and how to move it
-	if !strings.Contains(out, "Backdrop") {
-		t.Errorf("want a backdrop note:\n%s", out)
+
+	// the two panes share every row: the pricing header on the left, the board
+	// pane's caption on the right
+	var row string
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ln, "Volume pricing") {
+			row = ln
+			break
+		}
 	}
-	// a CSV design is drawn from placements, and says so
-	if !strings.Contains(stripANSI(m.boardStatus()), "placements") {
-		t.Errorf("board status = %q, want it to name what it drew", stripANSI(m.boardStatus()))
+	if row == "" {
+		t.Fatal("no pricing row found")
+	}
+	// the left half must not run past the middle
+	if mid := m.contentW() / 2; strings.Index(row, "Volume pricing") >= mid {
+		t.Errorf("the pricing block should be in the left half: %q", row)
+	}
+
+	// the board pane is titled for what it's actually drawing
+	pane := stripANSI(strings.Join(m.boardPane(40, 12), "\n"))
+	if !strings.Contains(pane, "Placements") {
+		t.Errorf("a CSV design's pane = %q, want it to say Placements", pane)
+	}
+	if !strings.Contains(pane, "zoom") {
+		t.Errorf("the pane should say how to move the view: %q", pane)
 	}
 }
 

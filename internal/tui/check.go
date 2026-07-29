@@ -191,6 +191,13 @@ func (m Model) moqImpact(boards int) (parts int, extra float64) {
 }
 
 func (m Model) viewCheck(w, h int) string {
+	// The page is split down the middle, so everything on the left is laid out
+	// to half the width.
+	const footer = 2
+	leftW := w / 2
+	rightW := w - leftW - 1
+	paneH := h - footer
+
 	assigned, warn := m.counts()
 	issues := m.issues()
 
@@ -219,7 +226,7 @@ func (m Model) viewCheck(w, h int) string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, m.preflightAndManifest(w)...)
+	lines = append(lines, m.preflightAndManifest(leftW)...)
 
 	pricing := []string{
 		accentStyle.Render("Volume pricing") + dimStyle.Render("  cost at supplier breaks"),
@@ -241,7 +248,6 @@ func (m Model) viewCheck(w, h int) string {
 
 	lines = append(lines, "")
 	lines = append(lines, pricing...)
-	lines = append(lines, "", m.boardStatus())
 
 	if b, pref, ext, known := m.libBreakdown(); known > 0 {
 		lines = append(lines, "", accentStyle.Render("Assembly library")+
@@ -305,45 +311,56 @@ func (m Model) viewCheck(w, h int) string {
 		lines = append(lines, dimStyle.Render("  "+strings.Join(parts, "   ")))
 	}
 
-	for len(lines) < h-2 {
-		lines = append(lines, "")
-	}
-	lines = append(lines,
+	// The numbers on the left, the board on the right at the full height it can
+	// get. The output field spans the bottom because it acts on both.
+	body := sideBySide(lines, m.boardPane(rightW, paneH), leftW, w, paneH)
+	body = append(body,
 		labelStyle.Render("Output  ")+m.check.out.View(),
 		dimStyle.Render("enter → order-ready zip (BOM + CPL + Gerbers) · * = some parts unassigned"))
-	if len(lines) > h {
-		lines = lines[:h]
-	}
-
-	// The board fills the page behind all of that, showing through wherever the
-	// text leaves a gap.
-	return strings.Join(overlay(lines, m.boardBackdrop(w, h), w), "\n")
+	return strings.Join(body, "\n")
 }
 
-// boardStatus is a one-line note about the backdrop: how big the board is, how
-// much of it you're looking at, and how to zoom.
-func (m Model) boardStatus() string {
-	if m.board == nil || (m.board.Empty() && len(m.placements) == 0) {
-		if !m.fromBoard() {
-			return dimStyle.Render("no board behind this — a bom csv has no geometry")
+// sideBySide lays two columns out to a fixed height, separated by a single space.
+func sideBySide(left, right []string, leftW, w, h int) []string {
+	out := make([]string, h)
+	for i := 0; i < h; i++ {
+		l, r := "", ""
+		if i < len(left) {
+			l = left[i]
 		}
-		return dimStyle.Render("no board outline to draw")
+		if i < len(right) {
+			r = right[i]
+		}
+		out[i] = padRender(l, leftW) + " " + padRender(r, w-leftW-1)
 	}
-	what := "board"
-	if !m.fromBoard() {
-		what = "placements"
-	}
-	out := accentStyle.Render("Backdrop") + dimStyle.Render("  "+what)
+	return out
+}
+
+// boardPane is the right-hand column of the Check page: the whole board, as big
+// as the page allows.
+func (m Model) boardPane(w, h int) []string {
+	head := m.boardHeader()
 	if m.boardW > 0 {
-		out += dimStyle.Render(" " + boardSize(m.boardW, m.boardH))
-	}
-	if n := len(m.placements); n > 0 {
-		out += dimStyle.Render(fmt.Sprintf(" · %d placed", n))
+		head += dimStyle.Render(boardSize(m.boardW, m.boardH))
 	}
 	if m.boardv.zoom > zoomMin {
-		out += warnStyle.Render(fmt.Sprintf("  %.1f×", m.boardv.zoom))
+		head += warnStyle.Render(fmt.Sprintf("  %.1f×", m.boardv.zoom))
 	}
-	return out + dimStyle.Render("  ^↑↓ zoom · shift+arrows pan")
+
+	out := []string{head, m.boardCaption()}
+	drawH := h - len(out)
+	if drawH < 2 {
+		return out
+	}
+	return append(out, m.miniBoard(w, drawH)...)
+}
+
+// boardCaption says what's being drawn and how to move it.
+func (m Model) boardCaption() string {
+	if n := len(m.placements); n > 0 {
+		return dimStyle.Render(fmt.Sprintf("%d placed · ^↑↓ zoom · shift+arrows pan", n))
+	}
+	return dimStyle.Render("^↑↓ zoom · shift+arrows pan")
 }
 
 func rotFamily(fp string) string {
@@ -423,6 +440,11 @@ func (m Model) preflightAndManifest(w int) []string {
 		man("positions.csv", subtleStyle.Render(fmt.Sprintf("%d placed · %d excluded", placed, len(m.placements)-placed))),
 		man("gerbers", gerbers),
 		man("components", subtleStyle.Render(fmt.Sprintf("%d total", len(m.placements)))),
+	}
+	// Side by side needs room for both; in a narrow column they'd both be
+	// truncated, so stack them instead.
+	if w < 90 {
+		return append(append(checklist, ""), manifest...)
 	}
 	return twoCol(checklist, manifest, w/2)
 }

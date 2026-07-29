@@ -5,19 +5,20 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"bomexpo/internal/part"
+	"bomexpo/internal/render"
 )
 
 const (
-	// Vendor parameter names are long ("Program Storage Size", "Number of I/O"),
-	// and eliding them to a dozen columns makes two rows indistinguishable.
-	// Budget: the differs mark, the label, and a guaranteed gap before the
-	// first value.
-	cmpLabelW = 22
-	// cmpMinColW is the narrowest a part column can get before paging is better
-	// than squashing.
-	cmpMinColW = 18
+	// cmpMinColW is the narrowest a part card can get before paging beats
+	// squashing: a label, a value and the box borders.
+	cmpMinColW = 24
+	// minCardH is the shortest a card can be and still hold a footprint drawing
+	// plus a field or two.
+	minCardH = 7
 )
 
 // compareState is the scroll and selection position in the matrix; the parts
@@ -193,8 +194,8 @@ func countText(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
-// compareTitle names the panel, saying which columns are on screen when they
-// don't all fit — the matrix rows themselves have no room to spare for it.
+// compareTitle names the panel, saying which cards are on screen when they don't
+// all fit.
 func (m Model) compareTitle() string {
 	n := len(m.parts.pinned)
 	if _, perPage, first := m.compareLayout(m.contentW()); perPage > 0 && perPage < n {
@@ -210,11 +211,11 @@ func (m Model) compareLayout(w int) (colW, perPage, first int) {
 	if n == 0 {
 		return 0, 0, 0
 	}
-	perPage = max(1, (w-cmpLabelW)/cmpMinColW)
+	perPage = max(1, w/cmpMinColW)
 	if perPage > n {
 		perPage = n
 	}
-	colW = (w - cmpLabelW) / perPage
+	colW = w / perPage
 	first = colFirst(m.compare.first, clampInt(m.compare.sel, 0, n-1), perPage, n)
 	return colW, perPage, first
 }
@@ -234,17 +235,27 @@ func colFirst(first, sel, perPage, n int) int {
 	return clampInt(first, 0, n-perPage)
 }
 
-func (m Model) compareRowsVisible() int {
-	n := m.contentH() - 4 // two header rows, a rule, and the legend
-	if n < 1 {
-		n = 1
+// compareFieldRows is how many differing fields a card shows at once, which is
+// what up and down scroll through.
+func (m Model) compareFieldRows() int {
+	botH := m.contentH() - m.contentH()*4/10 - 1
+	return max((botH-2)/2, 1)
+}
+
+// compareDiffCount is how many fields the pinned parts actually differ on.
+func (m Model) compareDiffCount() int {
+	n := 0
+	for _, r := range compareRows(m.parts.pinned) {
+		if !r.rule && r.differ {
+			n++
+		}
 	}
 	return n
 }
 
 func (m Model) updateCompareKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	rows := compareRows(m.parts.pinned)
-	vis := m.compareRowsVisible()
+	total := m.compareDiffCount()
+	vis := m.compareFieldRows()
 	n := len(m.parts.pinned)
 
 	switch msg.String() {
@@ -258,15 +269,15 @@ func (m Model) updateCompareKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		m.compare.top = max(0, m.compare.top-1)
 	case "down", "j":
-		m.compare.top = clampInt(m.compare.top+1, 0, max(0, len(rows)-vis))
+		m.compare.top = clampInt(m.compare.top+1, 0, max(0, total-vis))
 	case "pgup":
 		m.compare.top = max(0, m.compare.top-vis)
 	case "pgdown":
-		m.compare.top = clampInt(m.compare.top+vis, 0, max(0, len(rows)-vis))
+		m.compare.top = clampInt(m.compare.top+vis, 0, max(0, total-vis))
 	case "g", "home":
 		m.compare.top = 0
 	case "G", "end":
-		m.compare.top = max(0, len(rows)-vis)
+		m.compare.top = max(0, total-vis)
 	case "left", "h":
 		m.compare.sel = max(0, m.compare.sel-1)
 		_, _, m.compare.first = m.compareLayout(m.contentW())
@@ -306,25 +317,24 @@ func (m Model) unpinSelected() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) mouseCompare(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) {
-	rows := compareRows(m.parts.pinned)
-	vis := m.compareRowsVisible()
 	if wheel {
+		vis, total := m.compareFieldRows(), m.compareDiffCount()
 		if ms.Button == tea.MouseWheelUp {
 			m.compare.top = max(0, m.compare.top-1)
 		} else if ms.Button == tea.MouseWheelDown {
-			m.compare.top = clampInt(m.compare.top+1, 0, max(0, len(rows)-vis))
+			m.compare.top = clampInt(m.compare.top+1, 0, max(0, total-vis))
 		}
 		return m, nil
 	}
 	if !click || ms.Button != tea.MouseLeft {
 		return m, nil
 	}
-	// clicking a column focuses it
+	// clicking a card focuses it; the cards span the whole content width
 	colW, perPage, first := m.compareLayout(m.contentW())
 	if colW == 0 {
 		return m, nil
 	}
-	if x := ms.X - 2 - cmpLabelW; x >= 0 {
+	if x := ms.X - 2; x >= 0 {
 		if col := first + x/colW; col < first+perPage && col < len(m.parts.pinned) {
 			m.compare.sel = col
 		}
@@ -332,68 +342,193 @@ func (m Model) mouseCompare(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd
 	return m, nil
 }
 
+// viewCompare splits the page: what the parts agree on up top, then one column
+// per part below, each with its footprint and the fields that set it apart.
 func (m Model) viewCompare(w, h int) string {
-	ps := m.parts.pinned
-	if len(ps) < 2 {
+	if len(m.parts.pinned) < 2 {
 		return dimStyle.Render("pin at least two parts in the Parts tab to compare them")
 	}
+
+	// 40% for the common ground, 60% for the per-part columns — the columns need
+	// the room, since each carries a drawing.
+	topH := h * 4 / 10
+	botH := h - topH
+	if botH < minCardH+1 {
+		botH = min(h-2, minCardH+1)
+		topH = h - botH
+	}
+
+	out := m.compareShared(w, topH)
+	for len(out) < topH {
+		out = append(out, "")
+	}
+	out = append(out, m.compareColumns(w, botH-1)...)
+	for len(out) < h-1 {
+		out = append(out, "")
+	}
+	out = append(out[:h-1], padRender(m.compareLegend(), w))
+	return strings.Join(out, "\n")
+}
+
+func (m Model) compareLegend() string {
+	return okStyle.Render("▴") + dimStyle.Render(" best of these   ") +
+		dimStyle.Render("←→ column · ↑↓ more fields · x unpin · d datasheet · esc back")
+}
+
+// compareShared is the top pane: the fields every pinned part answers the same
+// way. Clearing them out of the way is what makes the differences below read.
+func (m Model) compareShared(w, h int) []string {
+	var same []cmpRow
+	for _, r := range compareRows(m.parts.pinned) {
+		if !r.rule && !r.differ {
+			same = append(same, r)
+		}
+	}
+
+	out := []string{accentStyle.Render("In common") +
+		dimStyle.Render(fmt.Sprintf("  all %d parts", len(m.parts.pinned)))}
+	if len(same) == 0 {
+		return append(out, dimStyle.Render("  nothing — these parts differ on every field"))
+	}
+
+	// Each entry is just a label and one value, so lay them out across the width
+	// rather than as a thin list with the pane half empty.
+	cols := min(3, len(same))
+	if w/max(cols, 1) < 24 {
+		cols = max(1, w/24)
+	}
+	perCol := (len(same) + cols - 1) / cols
+	if maxRows := max(h-1, 1); perCol > maxRows {
+		perCol = maxRows
+	}
+	colW := w / cols
+
+	grid := make([]string, perCol)
+	for i, r := range same {
+		row := i / cols // row-major, so it reads left to right
+		if row >= perCol {
+			break
+		}
+		grid[row] += padRender(dimStyle.Render(pad(trunc(r.label, 13), 14))+
+			subtleStyle.Render(trunc(r.vals[0], max(colW-15, 4))), colW)
+	}
+	for _, g := range grid {
+		if strings.TrimSpace(ansi.Strip(g)) != "" {
+			out = append(out, g)
+		}
+	}
+	if shown := min(len(same), perCol*cols); shown < len(same) {
+		out = append(out, dimStyle.Render(fmt.Sprintf("  +%d more in common", len(same)-shown)))
+	}
+	return out
+}
+
+// compareColumns is the bottom pane: one boxed card per part.
+func (m Model) compareColumns(w, h int) []string {
+	ps := m.parts.pinned
 	colW, perPage, first := m.compareLayout(w)
+	if colW == 0 || h < minCardH {
+		return nil
+	}
 	last := min(len(ps), first+perPage)
 
-	// two header rows: the code, then where it came from and how it's stocked
-	codes, meta := spaces(cmpLabelW), spaces(cmpLabelW)
+	var diff []cmpRow
+	for _, r := range compareRows(ps) {
+		if !r.rule && r.differ {
+			diff = append(diff, r)
+		}
+	}
+
+	// the drawing takes what the fields leave; the fields scroll if there are
+	// more than fit
+	factH := max((h-2)/2, 1)
+	drawH := h - 2 - factH
+	if drawH < 2 {
+		drawH, factH = 2, max(h-4, 1)
+	}
+	top := clampInt(m.compare.top, 0, max(0, len(diff)-factH))
+
+	cards := make([][]string, 0, last-first)
 	for i := first; i < last; i++ {
-		p := ps[i]
-		code, sub := pad(p.Code, colW), pad(libText(p.Lib), colW)
-		if i == m.compare.sel {
-			codes += selRowStyle.Render(code)
-			meta += selRowStyle.Render(sub)
-			continue
-		}
-		codes += accentStyle.Render(code)
-		meta += libCell(p.Lib, sub)
-	}
-	rows := compareRows(ps)
-	vis := m.compareRowsVisible()
-	top := clampInt(m.compare.top, 0, max(0, len(rows)-vis))
-
-	lines := []string{codes, meta, borderStyle.Render(strings.Repeat("─", w))}
-	for i := top; i < min(len(rows), top+vis); i++ {
-		r := rows[i]
-		if r.rule {
-			lines = append(lines, borderStyle.Render(strings.Repeat("─", w)))
-			continue
-		}
-		mark, label := " ", pad(trunc(r.label, cmpLabelW-2), cmpLabelW-2)
-		if r.differ {
-			mark, label = warnStyle.Render("!"), warnStyle.Render(label)
-		} else {
-			label = dimStyle.Render(label)
-		}
-		line := mark + label + " "
-		for j := first; j < last; j++ {
-			if j == r.best {
-				// The tick goes right after the value, not at the cell's right
-				// edge where it would read as belonging to the next column. And
-				// it's a glyph, not just colour, so a monochrome terminal still
-				// shows the winner.
-				line += okStyle.Render(pad(trunc(r.vals[j], colW-3)+" ▴", colW))
-				continue
-			}
-			cell := pad(trunc(r.vals[j], colW-1), colW)
-			if r.differ {
-				line += subtleStyle.Render(cell)
-				continue
-			}
-			line += dimStyle.Render(cell)
-		}
-		lines = append(lines, padRender(line, w))
+		cards = append(cards, m.compareCard(i, diff, top, colW, drawH, factH))
 	}
 
-	for len(lines) < h-1 {
-		lines = append(lines, "")
+	out := make([]string, h)
+	for y := 0; y < h; y++ {
+		line := ""
+		for _, c := range cards {
+			cell := ""
+			if y < len(c) {
+				cell = c[y]
+			}
+			line += padRender(cell, colW)
+		}
+		out[y] = padRender(line, w)
 	}
-	legend := warnStyle.Render("!") + dimStyle.Render(" differs   ") +
-		okStyle.Render("▴") + dimStyle.Render(" best   ←→ column · x unpin · d datasheet · esc back")
-	return strings.Join(lines, "\n") + "\n" + padRender(legend, w)
+	return out
+}
+
+// compareCard is one part's column: its code in the frame, its footprint, then
+// the fields that differ — bright where this part is the best of the bunch.
+func (m Model) compareCard(idx int, diff []cmpRow, top, w, drawH, factH int) []string {
+	p := m.parts.pinned[idx]
+	border, name := borderStyle, accentStyle
+	if idx == m.compare.sel {
+		border, name = accentStyle, cursorStyle
+	}
+
+	title := p.Code
+	if title == "" {
+		title = "—"
+	}
+	fill := max(w-4-lipgloss.Width(title), 0)
+	out := []string{border.Render("╭ ") + name.Render(title) +
+		border.Render(" "+strings.Repeat("─", fill)+"╮")}
+
+	inner := w - 2
+	body := m.compareFootprint(p, inner, drawH)
+	for len(body) < drawH {
+		body = append(body, "")
+	}
+
+	for i := top; i < len(diff) && len(body) < drawH+factH; i++ {
+		r := diff[i]
+		val, style, mark := r.vals[idx], subtleStyle, " "
+		if idx == r.best {
+			style, mark = okStyle, okStyle.Render("▴")
+		}
+		body = append(body, dimStyle.Render(pad(trunc(r.label, 10), 11))+
+			style.Render(trunc(val, max(inner-13, 3)))+" "+mark)
+	}
+	for len(body) < drawH+factH {
+		body = append(body, "")
+	}
+
+	for _, ln := range body {
+		out = append(out, border.Render("│")+padRender(ln, inner)+border.Render("│"))
+	}
+	return append(out, border.Render("╰"+strings.Repeat("─", inner)+"╯"))
+}
+
+// compareFootprint draws the part's land pattern. A pinned part carries a code,
+// not a footprint, so it's found through whichever line item uses that code.
+func (m Model) compareFootprint(p part.Part, w, h int) []string {
+	for i := range m.items {
+		if m.items[i].LCSC != p.Code {
+			continue
+		}
+		if lands := m.landsFor(i); len(lands) > 0 {
+			if img := render.Footprint(lands, render.FootprintOptions{
+				W: w, H: h, Rotate: m.rotOf(i),
+			}); img != "" {
+				return strings.Split(img, "\n")
+			}
+		}
+		break
+	}
+	pkg := p.Package
+	if pkg == "" {
+		pkg = "unknown package"
+	}
+	return []string{"", dimStyle.Render("  " + pkg), dimStyle.Render("  not on this board")}
 }

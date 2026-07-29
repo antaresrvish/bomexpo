@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+
 	"bomexpo/internal/part"
 )
 
@@ -148,27 +150,27 @@ func TestCompareLayoutPagesWhenNarrow(t *testing.T) {
 	m := New(Options{})
 	m.parts.pinned = []part.Part{{Code: "A"}, {Code: "B"}, {Code: "C"}, {Code: "D"}}
 
-	// wide: everything on one page
+	// wide: everything on one page, and the cards share the full width
 	colW, perPage, first := m.compareLayout(136)
 	if perPage != 4 || first != 0 {
 		t.Errorf("wide layout = perPage %d first %d, want 4/0", perPage, first)
 	}
-	if colW != (136-cmpLabelW)/4 {
-		t.Errorf("colW = %d, want %d", colW, (136-cmpLabelW)/4)
+	if colW != 136/4 {
+		t.Errorf("colW = %d, want %d", colW, 136/4)
 	}
 
-	// narrow: two per page, and the window follows the focused column
+	// narrow: two per page, and the window follows the focused card
 	m.compare.sel = 3
-	_, perPage, first = m.compareLayout(cmpLabelW + 2*cmpMinColW)
+	_, perPage, first = m.compareLayout(2 * cmpMinColW)
 	if perPage != 2 {
 		t.Fatalf("narrow perPage = %d, want 2", perPage)
 	}
 	if first != 2 {
-		t.Errorf("first = %d, want 2 so the focused column 3 is visible", first)
+		t.Errorf("first = %d, want 2 so the focused card 3 is visible", first)
 	}
 	m.compare.sel = 0
-	if _, _, first = m.compareLayout(cmpLabelW + 2*cmpMinColW); first != 0 {
-		t.Errorf("first = %d, want 0 for a focused column 0", first)
+	if _, _, first = m.compareLayout(2 * cmpMinColW); first != 0 {
+		t.Errorf("first = %d, want 0 for a focused card 0", first)
 	}
 }
 
@@ -195,7 +197,7 @@ func TestColFirstSlidesMinimally(t *testing.T) {
 func TestComparePageAlwaysFull(t *testing.T) {
 	m := New(Options{})
 	m.parts.pinned = []part.Part{{Code: "A"}, {Code: "B"}, {Code: "C"}}
-	w := cmpLabelW + 2*cmpMinColW
+	w := 2 * cmpMinColW
 	for sel := 0; sel < 3; sel++ {
 		m.compare.sel = sel
 		_, perPage, first := m.compareLayout(w)
@@ -229,47 +231,83 @@ func TestUnpinFromCompareLeavesWhenTooFew(t *testing.T) {
 	}
 }
 
-// TestCompareColumnGeometry is the guard that the clickable column spans line up
-// with where the header codes actually render.
+// TestCompareColumnGeometry is the guard that the clickable card spans line up
+// with where each card's frame actually renders.
 func TestCompareColumnGeometry(t *testing.T) {
 	m := New(Options{})
 	m.w, m.h = 140, 40
 	m.mode = modeCompare
 	m.parts.pinned = cmpFixture()
 
-	w := m.contentW()
+	w, h := m.contentW(), m.contentH()
 	colW, _, first := m.compareLayout(w)
-	lines := strings.Split(stripANSI(m.viewCompare(w, m.contentH())), "\n")
+	lines := strings.Split(stripANSI(m.viewCompare(w, h)), "\n")
 
-	for i, p := range m.parts.pinned {
-		at := strings.Index(lines[0], p.Code)
-		if at < 0 {
-			t.Fatalf("%s missing from the header row: %q", p.Code, lines[0])
+	// find the row holding the card frames
+	var frame string
+	for _, ln := range lines {
+		if strings.Contains(ln, "╭") {
+			frame = ln
+			break
 		}
-		want := cmpLabelW + (i-first)*colW
-		if at != want {
-			t.Errorf("%s renders at %d, but the column span says %d", p.Code, at, want)
+	}
+	if frame == "" {
+		t.Fatalf("no card frame row rendered:\n%s", strings.Join(lines, "\n"))
+	}
+	for i, p := range m.parts.pinned {
+		b := strings.Index(frame, p.Code)
+		if b < 0 {
+			t.Fatalf("%s missing from the frame row: %q", p.Code, frame)
+		}
+		// box characters are multi-byte, so measure the prefix in columns
+		at := lipgloss.Width(frame[:b])
+		// "╭ " precedes the code inside each card
+		if want := (i-first)*colW + 2; at != want {
+			t.Errorf("%s renders at column %d, but the card span says %d", p.Code, at, want)
 		}
 	}
 }
 
-func TestViewCompareShowsMarkersAndLegend(t *testing.T) {
+func TestViewCompareSplitsCommonFromDifferent(t *testing.T) {
 	m := New(Options{})
 	m.w, m.h = 140, 40
 	m.mode = modeCompare
 	m.parts.pinned = cmpFixture()
 
 	out := stripANSI(m.viewCompare(m.contentW(), m.contentH()))
-	if !strings.Contains(out, "!") {
-		t.Error("differing rows should be marked with !")
+	lines := strings.Split(out, "\n")
+
+	// the top pane collects what they agree on
+	if !strings.Contains(out, "In common") {
+		t.Error("want a shared-facts pane")
 	}
-	if !strings.Contains(out, "differs") {
-		t.Error("the legend should explain the ! marker")
-	}
-	for _, want := range []string{"64KB", "128KB", "Basic", "Extended"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("%q missing from the matrix", want)
+	commonAt, cardAt := -1, -1
+	for i, ln := range lines {
+		if commonAt < 0 && strings.Contains(ln, "In common") {
+			commonAt = i
 		}
+		if cardAt < 0 && strings.Contains(ln, "╭") {
+			cardAt = i
+		}
+	}
+	if commonAt < 0 || cardAt < 0 || commonAt >= cardAt {
+		t.Errorf("the shared pane (row %d) should sit above the cards (row %d)", commonAt, cardAt)
+	}
+	// package and brand match across the fixture, so they belong up top
+	top := strings.Join(lines[:cardAt], "\n")
+	if !strings.Contains(top, "brand") || !strings.Contains(top, "package") {
+		t.Errorf("brand and package agree, so they belong in the shared pane:\n%s", top)
+	}
+
+	// the differing values appear in the cards, with a winner marked
+	cards := strings.Join(lines[cardAt:], "\n")
+	for _, want := range []string{"64KB", "128KB", "▴"} {
+		if !strings.Contains(cards, want) {
+			t.Errorf("%q missing from the cards:\n%s", want, cards)
+		}
+	}
+	if !strings.Contains(out, "best of these") {
+		t.Error("the legend should explain the ▴ marker")
 	}
 }
 

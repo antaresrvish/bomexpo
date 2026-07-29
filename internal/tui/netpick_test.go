@@ -191,8 +191,8 @@ func TestBoardZoomAndPan(t *testing.T) {
 
 	// the level is shown, so you know you aren't seeing the whole board
 	m = zoomIn(m)
-	if got := stripANSI(m.boardStatus()); !strings.Contains(got, "×") {
-		t.Errorf("board status = %q, want a zoom indicator", got)
+	if got := stripANSI(strings.Join(m.boardPane(40, 12), "\n")); !strings.Contains(got, "×") {
+		t.Errorf("board pane = %q, want a zoom indicator", got)
 	}
 
 	// and the output path is untouched by all of that

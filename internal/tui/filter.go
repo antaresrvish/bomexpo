@@ -233,32 +233,26 @@ func (m Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		return m.closeFilter(true)
-	case "enter":
-		// enter finishes the word if it's still a partial, otherwise it's done
-		if len(sug) > 0 && !tokenIsExact(m.filter.field.Value(), sug) {
-			return m.acceptSuggestion(), nil
-		}
-		return m.closeFilter(false)
 	case "tab":
+		// tab completes the word being typed and leaves the query focused
 		if len(sug) > 0 {
 			return m.acceptSuggestion(), nil
 		}
 		return m, nil
-	// down and up leave the query: the dropdown goes away and the table takes
-	// the keyboard, which is what you want once you've narrowed it.
-	case "down", "up":
+	case "enter":
+		// enter is done: the dropdown closes and the table takes the keyboard
 		mm, cmd := m.closeFilter(false)
 		m = mm.(Model)
 		m.cursor, m.top = 0, 0
 		m.clampScroll()
 		return m, cmd
-	// the dropdown is driven with ctrl, so the arrows stay free for the table
-	case "ctrl+n":
+	// the arrows walk the dropdown; enter is how you get down into the table
+	case "down", "ctrl+n":
 		if n := shownSuggestions(sug); n > 0 {
 			m.filter.sug = (m.filter.sug + 1) % n
 		}
 		return m, nil
-	case "ctrl+p":
+	case "up", "ctrl+p":
 		if n := shownSuggestions(sug); n > 0 {
 			m.filter.sug = (m.filter.sug - 1 + n) % n
 		}
@@ -279,27 +273,14 @@ func (m Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func shownSuggestions(sug []suggestion) int { return min(len(sug), sugMax) }
 
-// tokenIsExact reports whether the word being typed is already one of the
-// offered values, so enter means "done" rather than "complete this".
-func tokenIsExact(q string, sug []suggestion) bool {
-	tok := lastToken(q)
-	if tok == "" {
-		return false
-	}
-	for _, s := range sug {
-		if strings.EqualFold(strings.TrimSuffix(s.value, ":"), strings.TrimSuffix(tok, ":")) {
-			return true
-		}
-	}
-	return false
-}
-
 func (m Model) filterBar(w int) string {
+	// The bar is bright while it has the keyboard and dim once the table does, so
+	// there's always something on screen saying where you're typing.
 	var left string
 	if m.filter.open {
-		left = accentStyle.Render("/ ") + m.filter.field.View()
+		left = accentStyle.Render("▸ /") + " " + m.filter.field.View()
 	} else {
-		left = dimStyle.Render("/ ") + subtleStyle.Render(m.filter.f.raw) +
+		left = dimStyle.Render("  /") + " " + subtleStyle.Render(m.filter.f.raw) +
 			dimStyle.Render("   / edit · esc clear")
 	}
 
