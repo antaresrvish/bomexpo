@@ -244,12 +244,21 @@ func (m Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.acceptSuggestion(), nil
 		}
 		return m, nil
-	case "down", "ctrl+n":
+	// down and up leave the query: the dropdown goes away and the table takes
+	// the keyboard, which is what you want once you've narrowed it.
+	case "down", "up":
+		mm, cmd := m.closeFilter(false)
+		m = mm.(Model)
+		m.cursor, m.top = 0, 0
+		m.clampScroll()
+		return m, cmd
+	// the dropdown is driven with ctrl, so the arrows stay free for the table
+	case "ctrl+n":
 		if n := shownSuggestions(sug); n > 0 {
 			m.filter.sug = (m.filter.sug + 1) % n
 		}
 		return m, nil
-	case "up", "ctrl+p":
+	case "ctrl+p":
 		if n := shownSuggestions(sug); n > 0 {
 			m.filter.sug = (m.filter.sug - 1 + n) % n
 		}

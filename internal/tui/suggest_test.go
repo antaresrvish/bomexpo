@@ -153,28 +153,69 @@ func TestAcceptCompletesTheWord(t *testing.T) {
 func TestSuggestNavigationAndAcceptKeys(t *testing.T) {
 	m := suggestModel(t, "net:")
 
-	// down moves the highlight and wraps
-	for i := 0; i < 2; i++ {
-		mm, _ := m.updateFilterKey(tea.KeyPressMsg{Code: tea.KeyDown})
-		m = mm.(Model)
+	// ctrl+n walks the dropdown and wraps
+	ctrl := func(m Model, c rune) Model {
+		mm, _ := m.updateFilterKey(tea.KeyPressMsg{Code: c, Mod: tea.ModCtrl})
+		return mm.(Model)
 	}
+	m = ctrl(ctrl(m, 'n'), 'n')
 	if m.filter.sug != 2 {
-		t.Fatalf("sug = %d, want 2 after two downs", m.filter.sug)
+		t.Fatalf("sug = %d, want 2 after two ctrl+n", m.filter.sug)
 	}
-	mm, _ := m.updateFilterKey(tea.KeyPressMsg{Code: tea.KeyUp})
-	m = mm.(Model)
+	m = ctrl(m, 'p')
 	if m.filter.sug != 1 {
-		t.Errorf("sug = %d, want 1 after an up", m.filter.sug)
+		t.Errorf("sug = %d, want 1 after a ctrl+p", m.filter.sug)
 	}
 
 	// tab takes the highlighted one, which is +5V
-	mm, _ = m.updateFilterKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	mm, _ := m.updateFilterKey(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = mm.(Model)
 	if got := m.filter.field.Value(); got != "net:+5V " {
 		t.Errorf("tab → %q, want net:+5V ", got)
 	}
 	if !m.filter.open {
 		t.Error("tab should leave the bar open for more terms")
+	}
+}
+
+// Down is how you get out of the query and into the rows — the dropdown has to
+// get out of the way, and the filter has to stay applied.
+func TestDownLeavesTheQueryForTheTable(t *testing.T) {
+	m := suggestModel(t, "net:GND")
+
+	for _, code := range []rune{tea.KeyDown, tea.KeyUp} {
+		m := suggestModel(t, "net:GND")
+		mm, _ := m.updateFilterKey(tea.KeyPressMsg{Code: code})
+		m = mm.(Model)
+
+		if m.filter.open {
+			t.Errorf("%v should hand the keyboard to the table", code)
+		}
+		if m.suggestBox(80) != nil {
+			t.Errorf("%v should dismiss the dropdown", code)
+		}
+		if !m.filter.f.active() || shown(m) != "C1,C2,R1,D1" {
+			t.Errorf("%v must keep the filter applied, got %q", code, shown(m))
+		}
+		if m.cursor != 0 {
+			t.Errorf("%v should land on the first row, got %d", code, m.cursor)
+		}
+	}
+
+	// and from there the arrows walk the filtered rows
+	mm, _ := m.updateFilterKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = mm.(Model)
+	mm, _ = m.updateTable(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = mm.(Model)
+	if m.cursor != 1 {
+		t.Errorf("cursor = %d, want 1 after a down in the table", m.cursor)
+	}
+	if got := m.items[m.sel()].ID(); got != "C2" {
+		t.Errorf("selected %s, want C2 — the second row of the filtered set", got)
+	}
+	// the bar stays visible so the filter is never in force invisibly
+	if !m.filterBarVisible() {
+		t.Error("the filter bar should still show what's filtering")
 	}
 }
 

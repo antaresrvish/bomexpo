@@ -65,6 +65,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.placements = d.Placements
 		m.board = d.Board
 		m.designNets = d.Nets
+		m.designLands = d.Lands
 		m.boardv = newBoardState()
 		m.layers = d.Layers
 		m.boardW, m.boardH = d.BoardW, d.BoardH
@@ -493,8 +494,8 @@ func (m Model) helpLine() string {
 	case modeTable:
 		if m.filter.open {
 			// the dropdown shows the keys, so the hint is about driving it
-			hints = [][2]string{{"type", "narrow"}, {"↑↓", "pick"}, {"tab", "complete"},
-				{"enter", "apply"}, {"esc", "clear"}}
+			hints = [][2]string{{"type", "narrow"}, {"tab", "complete"}, {"^n/^p", "pick"},
+				{"↓", "into the table"}, {"esc", "clear"}}
 			break
 		}
 		hints = [][2]string{{"enter", "assign"}, {"a", "auto"}, {"/", "filter"}, {"t/b/i", "3D"}, {"o", "rotate"}, {"w", "save"}, {"tab", "switch"}}
@@ -515,7 +516,8 @@ func (m Model) helpLine() string {
 	case modeNets:
 		hints = [][2]string{{"type", "narrow"}, {"↑↓", "nets"}, {"enter", "filter by it"}, {"esc", "back"}}
 	case modeCheck:
-		hints = [][2]string{{"click", "go to part"}, {"enter", "export"}, {"tab", "switch"}, {"esc", "back"}}
+		hints = [][2]string{{"click", "go to part"}, {"enter", "export"},
+			{"^↑↓", "zoom board"}, {"tab", "switch"}, {"esc", "back"}}
 	}
 	parts := make([]string, len(hints))
 	for i, h := range hints {

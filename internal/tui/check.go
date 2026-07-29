@@ -107,6 +107,26 @@ func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "down":
 		m.check.top++
 		return m, nil
+	// The output path has the keyboard here, so the board view uses modifiers
+	// the text field doesn't want.
+	case "ctrl+up":
+		m.boardv = m.boardv.zoomBy(zoomStep)
+		return m, nil
+	case "ctrl+down":
+		m.boardv = m.boardv.zoomBy(1 / zoomStep)
+		return m, nil
+	case "shift+left":
+		m.boardv = m.boardv.panBy(-1, 0)
+		return m, nil
+	case "shift+right":
+		m.boardv = m.boardv.panBy(1, 0)
+		return m, nil
+	case "shift+up":
+		m.boardv = m.boardv.panBy(0, -1)
+		return m, nil
+	case "shift+down":
+		m.boardv = m.boardv.panBy(0, 1)
+		return m, nil
 	case "enter":
 		path := strings.TrimSpace(m.check.out.Value())
 		if path == "" {
@@ -201,21 +221,28 @@ func (m Model) viewCheck(w, h int) string {
 	lines = append(lines, "")
 	lines = append(lines, m.preflightAndManifest(w)...)
 
-	lines = append(lines, "", accentStyle.Render("Volume pricing")+dimStyle.Render("  order cost at supplier quantity breaks"))
-	lines = append(lines, colHeadStyle.Render(pad("  BOARDS", 12)+pad("ORDER COST", 16)+pad("PER BOARD", 14)))
+	pricing := []string{
+		accentStyle.Render("Volume pricing") + dimStyle.Render("  cost at supplier breaks"),
+		colHeadStyle.Render(pad("  BOARDS", 10) + pad("ORDER COST", 14) + pad("PER BOARD", 12)),
+	}
 	for _, n := range []int{1, 100, 200, 300, 400, 500} {
 		tot, complete := m.costAt(n)
 		mark := ""
 		if !complete {
 			mark = dimStyle.Render("*")
 		}
-		lines = append(lines, "  "+pad(fmt.Sprintf("%d", n), 10)+
-			okStyle.Render(pad(fmt.Sprintf("$%.2f", tot), 14))+mark+"  "+
+		pricing = append(pricing, "  "+pad(fmt.Sprintf("%d", n), 8)+
+			okStyle.Render(pad(fmt.Sprintf("$%.2f", tot), 12))+mark+"  "+
 			subtleStyle.Render(fmt.Sprintf("$%.4f", tot/float64(n))))
 	}
 	if n, extra := m.moqImpact(1); n > 0 {
-		lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d parts hit their supplier minimum order — +$%.2f extra stock at 1 board", n, extra)))
+		pricing = append(pricing, dimStyle.Render(fmt.Sprintf("  %d parts hit a supplier minimum — +$%.2f at 1 board", n, extra)))
 	}
+
+	// The pricing table is narrow, so the board goes beside it rather than
+	// leaving half the page empty.
+	lines = append(lines, "")
+	lines = append(lines, twoCol(pricing, m.checkBoard(w-w/2-2), w/2)...)
 
 	if b, pref, ext, known := m.libBreakdown(); known > 0 {
 		lines = append(lines, "", accentStyle.Render("Assembly library")+
@@ -293,6 +320,35 @@ func rotFamily(fp string) string {
 		return fp[:i]
 	}
 	return fp
+}
+
+// checkBoard draws the whole board for the order review. It lives here rather
+// than in the Components sidebar because it needs the room to be readable.
+func (m Model) checkBoard(w int) []string {
+	const h = 9
+	head := m.boardHeader()
+	if m.boardW > 0 {
+		head += dimStyle.Render(boardSize(m.boardW, m.boardH))
+	}
+	if m.boardv.zoom > zoomMin {
+		head += warnStyle.Render(fmt.Sprintf("  %.1f×", m.boardv.zoom))
+	}
+
+	body := m.miniBoard(w, h)
+	out := append([]string{head}, body...)
+	if len(body) > 1 {
+		excl := m.excludeSet()
+		n := 0
+		for _, p := range m.placements {
+			if excl[p.Designator] {
+				n++
+			}
+		}
+		if n > 0 {
+			out = append(out, dimStyle.Render(fmt.Sprintf("  %d excluded parts are still drawn", n)))
+		}
+	}
+	return out
 }
 
 // preflightAndManifest renders the pre-flight checklist and the order-package

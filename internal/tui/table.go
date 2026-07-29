@@ -108,20 +108,6 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.openDatasheet(m.sel())
 	case "n":
 		return m.openNetPicker()
-	case "+", "=":
-		m.boardv = m.boardv.zoomBy(zoomStep)
-	case "-", "_":
-		m.boardv = m.boardv.zoomBy(1 / zoomStep)
-	case "0":
-		m.boardv = m.boardv.resetView()
-	case "shift+left":
-		m.boardv = m.boardv.panBy(-1, 0)
-	case "shift+right":
-		m.boardv = m.boardv.panBy(1, 0)
-	case "shift+up":
-		m.boardv = m.boardv.panBy(0, -1)
-	case "shift+down":
-		m.boardv = m.boardv.panBy(0, 1)
 	}
 	m.clampScroll()
 	return m, nil
@@ -206,18 +192,6 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		}
 	}
 	m.drag = dragNone
-
-	// board side buttons live in the sidebar's board-header row
-	if sidebarW(m.contentW()) > 0 {
-		topH := (h - 1) / 2
-		if ms.Y == 2+topH+1 {
-			for _, b := range boardButtonSpans(2 + tableW + 2) {
-				if ms.X >= b.lo && ms.X < b.hi {
-					return m.openRender(b.side)
-				}
-			}
-		}
-	}
 
 	bx := ms.X - 2
 	if bx < 0 || bx >= tableW {
@@ -494,11 +468,16 @@ func (m Model) sidebarBlock(sideW, h int) []string {
 		}
 	}
 	lines = append(lines, borderStyle.Render(strings.Repeat("─", sideW)))
-	lines = append(lines, padRender(m.boardHeader(), sideW))
-	bd := m.miniBoard(sideW, botH-1)
-	for i := 0; i < botH-1; i++ {
-		if i < len(bd) {
-			lines = append(lines, padRender(bd[i], sideW))
+	head := m.footprintHeader(sideW)
+	for _, ln := range head {
+		lines = append(lines, padRender(ln, sideW))
+	}
+	// the rule already came out of botH's budget; the rest is header + drawing
+	drawH := botH - len(head)
+	fp := m.miniFootprint(sideW, drawH)
+	for i := 0; i < drawH; i++ {
+		if i < len(fp) {
+			lines = append(lines, padRender(fp[i], sideW))
 		} else {
 			lines = append(lines, spaces(sideW))
 		}
@@ -622,6 +601,9 @@ func sideCard(sideW int, title string, rows []string) []string {
 	return append(out, borderStyle.Render("╰"+strings.Repeat("─", inner)+"╯"))
 }
 
+// miniBoard draws the whole board. The Check page has the room for it; the
+// Components sidebar shows the selected footprint instead, which is legible at
+// that size.
 func (m Model) miniBoard(w, h int) []string {
 	// A CSV design has no outline or copper, but a placement file still says
 	// where every part sits, which is worth drawing on its own.
@@ -652,8 +634,65 @@ func (m Model) miniBoard(w, h int) []string {
 	return strings.Split(img, "\n")
 }
 
-// boardSides pairs each button's display text (the bracketed mnemonic doubles
-// as the keyboard hint) with the render side it selects.
+// landsFor is the pad geometry of the selected line item's footprint.
+func (m Model) landsFor(i int) []kicad.Land {
+	if i < 0 || i >= len(m.items) || m.designLands == nil {
+		return nil
+	}
+	return m.designLands[m.items[i].Footprint]
+}
+
+// miniFootprint draws the selected part's pads, turned the way the CPL will
+// place it, with pad 1 picked out so the orientation is obvious.
+func (m Model) miniFootprint(w, h int) []string {
+	i := m.sel()
+	lands := m.landsFor(i)
+	if h < 3 || len(lands) == 0 {
+		if !m.fromBoard() {
+			return []string{dimStyle.Render("no pad geometry — bom csv has none")}
+		}
+		return []string{dimStyle.Render("no pads on this footprint")}
+	}
+
+	hl := ""
+	if nets := m.items[i].Nets; len(nets) == 1 {
+		hl = nets[0] // a two-pin part on one net: worth pointing out
+	}
+	img := render.Footprint(lands, render.FootprintOptions{
+		W: w, H: h, Rotate: m.rotOf(i), Highlight: hl,
+	})
+	if img == "" {
+		return []string{dimStyle.Render("too small to draw")}
+	}
+	return strings.Split(img, "\n")
+}
+
+// footprintHeader labels the drawing: the footprint on one line, then its pad
+// count, land size and the angle it's drawn at. Two lines because a footprint
+// name alone can fill the sidebar.
+func (m Model) footprintHeader(w int) []string {
+	i := m.sel()
+	if i < 0 {
+		return []string{accentStyle.Render("Footprint"), ""}
+	}
+	it := m.items[i]
+	name := accentStyle.Render("Footprint") + " " + subtleStyle.Render(trunc(it.Footprint, max(w-11, 8)))
+
+	lands := m.landsFor(i)
+	if len(lands) == 0 {
+		return []string{name, ""}
+	}
+	rt, rs := rotCell(it)
+	sum := dimStyle.Render(render.FootprintSummary(lands))
+	gap := w - lipgloss.Width(sum) - lipgloss.Width(rt)
+	if gap < 1 {
+		gap = 1
+	}
+	return []string{name, sum + spaces(gap) + rs.Render(rt)}
+}
+
+// boardSides pairs each hint's display text (the bracketed mnemonic is the
+// keyboard shortcut) with the render side it selects.
 var boardSides = []struct{ text, side string }{
 	{"[t]op", "top"}, {"[b]ot", "bottom"}, {"[i]so", "iso"},
 }
@@ -676,32 +715,7 @@ func (m Model) boardHeader() string {
 		}
 		b += " "
 	}
-	if m.boardv.zoom > zoomMin {
-		b += warnStyle.Render(fmt.Sprintf("%.1f×", m.boardv.zoom))
-	}
 	return b
-}
-
-// boardButtonSpans returns the screen-x ranges of the side buttons, given where
-// the sidebar content starts on screen.
-func boardButtonSpans(sideStartX int) []struct {
-	lo, hi int
-	side   string
-} {
-	x := sideStartX + 6 // "Board "
-	var out []struct {
-		lo, hi int
-		side   string
-	}
-	for _, s := range boardSides {
-		w := lipgloss.Width(s.text)
-		out = append(out, struct {
-			lo, hi int
-			side   string
-		}{x, x + w, s.side})
-		x += w + 1
-	}
-	return out
 }
 
 // rowView renders one display row. row indexes the visible order; the line item

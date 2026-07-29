@@ -20,9 +20,12 @@ type Design struct {
 	Placements []Placement
 	Board      *Board
 	Nets       []Net // empty for a CSV design: a BOM carries no connectivity
-	Layers     int
-	BoardW     float64
-	BoardH     float64
+	// Lands maps a footprint name to its pads, so a line item can be drawn from
+	// its Footprint field. Empty for a CSV design.
+	Lands  map[string][]Land
+	Layers int
+	BoardW float64
+	BoardH float64
 }
 
 // FromBoard reports whether a .kicad_pcb backs this design.
@@ -60,6 +63,7 @@ func Load(path, cplPath string) (*Design, error) {
 		Placements: p.Placements(),
 		Board:      p.Board(),
 		Nets:       p.Nets(),
+		Lands:      p.Lands(),
 		Layers:     p.Layers,
 		BoardW:     p.BoardW,
 		BoardH:     p.BoardH,

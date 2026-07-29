@@ -85,19 +85,20 @@ type Model struct {
 	filter  filterState
 	nets    netState
 
-	name       string
-	pcbPath    string // empty for a CSV design
-	bomPath    string // set when the line items came from a CSV
-	cplPath    string // set when the placements came from a CSV
-	items      []kicad.Item
-	placements []kicad.Placement
-	board      *kicad.Board
-	designNets []kicad.Net
-	assigned   []*part.Part
-	excluded   []bool
-	layers     int
-	boardW     float64
-	boardH     float64
+	name        string
+	pcbPath     string // empty for a CSV design
+	bomPath     string // set when the line items came from a CSV
+	cplPath     string // set when the placements came from a CSV
+	items       []kicad.Item
+	placements  []kicad.Placement
+	board       *kicad.Board
+	designNets  []kicad.Net
+	designLands map[string][]kicad.Land
+	assigned    []*part.Part
+	excluded    []bool
+	layers      int
+	boardW      float64
+	boardH      float64
 
 	// cplArg is the placement csv named on the command line, used when the
 	// design being opened is a BOM csv.

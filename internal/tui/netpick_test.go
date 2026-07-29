@@ -141,60 +141,62 @@ func TestNetViewRendersCountsAndFitsHeight(t *testing.T) {
 	}
 }
 
+// The board lives on the Check page now, where the output path owns the
+// keyboard, so its view is driven with modifiers.
 func TestBoardZoomAndPan(t *testing.T) {
 	m := netModel(t)
+	m.mode = modeCheck
 	if m.boardv.zoom != 1 {
 		t.Fatalf("zoom starts at %g, want 1", m.boardv.zoom)
 	}
 
-	press := func(m Model, s string, code rune) Model {
-		mm, _ := m.updateTable(tea.KeyPressMsg{Text: s, Code: code})
+	key := func(m Model, code rune, mod tea.KeyMod) Model {
+		mm, _ := m.updateCheck(tea.KeyPressMsg{Code: code, Mod: mod})
 		return mm.(Model)
 	}
+	zoomIn := func(m Model) Model { return key(m, tea.KeyUp, tea.ModCtrl) }
+	zoomOut := func(m Model) Model { return key(m, tea.KeyDown, tea.ModCtrl) }
+	panRight := func(m Model) Model { return key(m, tea.KeyRight, tea.ModShift) }
 
 	// panning does nothing while the whole board fits
-	m = press(m, "", 0)
-	mm, _ := m.updateTable(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModShift})
-	if got := mm.(Model).boardv.panX; got != 0 {
+	if got := panRight(m).boardv.panX; got != 0 {
 		t.Errorf("panX = %g, want 0 at fit zoom", got)
 	}
 
-	m = press(m, "+", '+')
+	m = zoomIn(m)
 	if m.boardv.zoom <= 1 {
-		t.Errorf("+ should zoom in, got %g", m.boardv.zoom)
+		t.Errorf("ctrl+up should zoom in, got %g", m.boardv.zoom)
 	}
-	// now panning bites
-	mm, _ = m.updateTable(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModShift})
-	m = mm.(Model)
+	m = panRight(m)
 	if m.boardv.panX <= 0 {
 		t.Errorf("panX = %g, want it to move right", m.boardv.panX)
 	}
 
-	// 0 puts everything back
-	m = press(m, "0", '0')
-	if m.boardv.zoom != 1 || m.boardv.panX != 0 || m.boardv.panY != 0 {
-		t.Errorf("reset left %+v", m.boardv)
-	}
-
-	// zoom is bounded, and coming back to the fit level drops the pan
+	// zoom is capped
 	for i := 0; i < 40; i++ {
-		m = press(m, "+", '+')
+		m = zoomIn(m)
 	}
 	if m.boardv.zoom > zoomMax {
 		t.Errorf("zoom = %g, want it capped at %g", m.boardv.zoom, zoomMax)
 	}
-	mm, _ = m.updateTable(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModShift})
-	m = mm.(Model)
+
+	// zooming all the way back out is the way home, pan included
+	m = panRight(m)
 	for i := 0; i < 40; i++ {
-		m = press(m, "-", '-')
+		m = zoomOut(m)
 	}
-	if m.boardv.zoom != zoomMin || m.boardv.panX != 0 {
+	if m.boardv.zoom != zoomMin || m.boardv.panX != 0 || m.boardv.panY != 0 {
 		t.Errorf("zooming back out left %+v, want the fit view", m.boardv)
 	}
 
-	// the zoom level is shown so you know you're not looking at the whole board
-	m = press(m, "+", '+')
-	if got := stripANSI(m.boardHeader()); !strings.Contains(got, "×") {
-		t.Errorf("board header = %q, want a zoom indicator", got)
+	// the level is shown, so you know you aren't seeing the whole board
+	m = zoomIn(m)
+	if got := stripANSI(strings.Join(m.checkBoard(50), "\n")); !strings.Contains(got, "×") {
+		t.Errorf("check board = %q, want a zoom indicator", got)
+	}
+
+	// and the output path is untouched by all of that
+	if got := m.check.out.Value(); strings.ContainsAny(got, "+-") {
+		t.Errorf("the board keys leaked into the output path: %q", got)
 	}
 }

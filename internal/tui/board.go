@@ -43,6 +43,8 @@ func (b boardState) panBy(dx, dy float64) boardState {
 	return b
 }
 
+// resetView returns to the fit-the-whole-board view. Zooming all the way out
+// does this too, so there's no separate key for it.
 func (b boardState) resetView() boardState {
 	b.zoom, b.panX, b.panY = 1, 0, 0
 	return b

@@ -24,6 +24,20 @@ type Component struct {
 	BodyW, BodyH   float64
 	// Nets are the distinct net names this footprint's pads sit on.
 	Nets []string
+	// Lands are the pads in the footprint's own frame, for drawing it.
+	Lands []Land
+}
+
+// Land is one pad, in the footprint's own coordinates — which is exactly the
+// frame you want to draw the footprint in.
+type Land struct {
+	Name  string
+	X, Y  float64
+	W, H  float64
+	Round bool
+	Net   string
+	Hole  bool // through-hole rather than surface mount
+	First bool // pad 1, the orientation reference
 }
 
 // Net is one net and the components that touch it.
@@ -66,6 +80,21 @@ func (p *Project) Nets() []Net {
 		}
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
+	return out
+}
+
+// Lands collects each distinct footprint's pads, taking the first component
+// that uses it — components sharing a footprint share its geometry.
+func (p *Project) Lands() map[string][]Land {
+	out := map[string][]Land{}
+	for _, c := range p.Components {
+		if c.Footprint == "" || len(c.Lands) == 0 {
+			continue
+		}
+		if _, seen := out[c.Footprint]; !seen {
+			out[c.Footprint] = c.Lands
+		}
+	}
 	return out
 }
 
@@ -254,19 +283,32 @@ func parseFootprint(n *node, netNames map[int]string) (Component, bool) {
 			at, sz := child(k, "at"), child(k, "size")
 			px, py := num(atom(at, 1)), num(atom(at, 2))
 			sw, sh := num(atom(sz, 1)), num(atom(sz, 2))
+			// a pad turned on its side swaps its extents
+			if rot := math.Mod(math.Abs(num(atom(at, 3))), 180); rot > 45 && rot < 135 {
+				sw, sh = sh, sw
+			}
 			minX, maxX = math.Min(minX, px-sw/2), math.Max(maxX, px+sw/2)
 			minY, maxY = math.Min(minY, py-sh/2), math.Max(maxY, py+sh/2)
+
+			land := Land{
+				Name: atom(k, 1), X: px, Y: py, W: sw, H: sh,
+				Hole:  strings.Contains(atom(k, 2), "thru_hole"),
+				Round: strings.HasPrefix(atom(k, 3), "circle") || strings.HasPrefix(atom(k, 3), "oval"),
+				First: atom(k, 1) == "1" || atom(k, 1) == "A1",
+			}
 
 			if nn := child(k, "net"); nn != nil {
 				name := atom(nn, 2)
 				if name == "" {
 					name = netNames[int(num(atom(nn, 1)))]
 				}
+				land.Net = name
 				if name != "" && !onNet[name] {
 					onNet[name] = true
 					c.Nets = append(c.Nets, name)
 				}
 			}
+			c.Lands = append(c.Lands, land)
 		}
 	}
 	if c.Ref == "" {
