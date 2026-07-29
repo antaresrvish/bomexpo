@@ -350,7 +350,8 @@ func (m Model) titleBody() (title, body string) {
 		return "Search " + m.srcLabel(), m.viewSearch(cw, ch)
 	case modeParts:
 		if m.cat.open {
-			return "Categories · " + m.srcLabel(), m.viewCategories(cw, ch)
+			// the popup floats over the results, so the tab keeps its own title
+			return "Parts · " + m.srcLabel(), m.viewCategories(cw, ch)
 		}
 		return "Parts · " + m.srcLabel(), m.viewParts(cw, ch)
 	case modeCompare:

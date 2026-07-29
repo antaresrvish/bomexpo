@@ -197,13 +197,38 @@ func (m Model) applyCategory(c catCell) (tea.Model, tea.Cmd) {
 
 // moveCat walks the grid. Left and right step through the boxes in order, up and
 // down move a row at a time, keeping roughly the same column.
+// catGridW is the width the grid is laid out to: the popup's inner width. Key
+// handling and rendering both go through it so they agree on what column a box is
+// in. It depends only on the terminal width, so the height can be derived from it
+// without the two chasing each other.
+func (m Model) catGridW() int {
+	return popupW(m.contentW()) - 5
+}
+
+// catPopupH is the popup's height: the frame, the query block, the footer, and
+// three rows for every grid row the categories need, capped by the page.
+func (m Model) catPopupH() int {
+	cols, _, _ := catCols(m.catGridW())
+	rows := catLayout(catGroups(m.catRows()), cols)
+	return catChromeH + 3*max(len(rows), 1)
+}
+
+// catChromeH is everything in the popup that isn't a grid row: the frame's two
+// borders and its shadow row, plus the title, query, status, rule and footer.
+const catChromeH = 3 + 5
+
+// catGeom is where the popup sits and how big it is.
+func (m Model) catGeom() (x, y, pw, ph int) {
+	return popupBox(m.contentW(), m.contentH(), m.catPopupH())
+}
+
 func (m Model) moveCat(dx, dy int) (tea.Model, tea.Cmd) {
 	cells := catGroups(m.catRows())
 	pick := catPickable(cells)
 	if len(pick) == 0 {
 		return m, nil
 	}
-	cols, _, _ := catCols(m.contentW())
+	cols, _, _ := catCols(m.catGridW())
 	rows := catLayout(cells, cols)
 
 	if dx != 0 {
@@ -241,7 +266,7 @@ func (m Model) moveCat(dx, dy int) (tea.Model, tea.Cmd) {
 
 func (m *Model) clampCat() {
 	cells := catGroups(m.catRows())
-	cols, _, _ := catCols(m.contentW())
+	cols, _, _ := catCols(m.catGridW())
 	rows := catLayout(cells, cols)
 	vis := m.catVisibleRows()
 	for ri, row := range rows {
@@ -260,10 +285,11 @@ func (m *Model) clampCat() {
 	}
 }
 
-// catVisibleRows is how many grid rows fit under the query and the status line.
+// catVisibleRows is how many grid rows fit inside the popup, under the query and
+// the status line and above the footer.
 func (m Model) catVisibleRows() int {
-	// title, query, status, rule, footer, and 3 lines per box row
-	n := (m.contentH() - 5) / 3
+	_, _, _, ph := m.catGeom()
+	n := (ph - catChromeH) / 3
 	if n < 1 {
 		n = 1
 	}
@@ -348,33 +374,50 @@ func (m Model) mouseCat(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	cells := catGroups(m.catRows())
-	cols, boxW, gap := catCols(m.contentW())
+	cols, boxW, gap := catCols(m.catGridW())
 	rows := catLayout(cells, cols)
-	// tab(1)+border(1)+title,query,status,rule(4)
-	const gridTop = 6
-	r := m.cat.top + (ms.Y-gridTop)/3
-	if r < 0 || r >= len(rows) {
+
+	// Screen to popup: the tab bar and panel border, then where the popup sits,
+	// its own border and padding, and the title, query, status and rule above the
+	// grid.
+	px, py, _, _ := m.catGeom()
+	gridX := 2 + px + 2
+	gridY := 2 + py + 1 + 4
+	r := m.cat.top + (ms.Y-gridY)/3
+	if ms.Y < gridY || r < 0 || r >= len(rows) {
 		return m, nil
 	}
 	row := rows[r]
 	if cells[row[0]].heading {
 		return m, nil
 	}
-	col := (ms.X - 2) / (boxW + gap)
-	if col < 0 || col >= len(row) {
+	col := (ms.X - gridX) / (boxW + gap)
+	if ms.X < gridX || col < 0 || col >= len(row) {
 		return m, nil
 	}
 	return m.applyCategory(cells[row[col]])
 }
 
+// viewCategories draws the Parts tab with the category popup floating over it, so
+// the results you are narrowing stay visible around the box.
 func (m Model) viewCategories(w, h int) string {
+	bg := strings.Split(m.viewParts(w, h), "\n")
+	x, y, pw, ph := m.catGeom()
+	box := popupFrame(
+		fmt.Sprintf("Categories · %d results in %s", len(m.parts.results), m.srcLabel()),
+		m.catContent(pw-5, ph-3), pw, ph)
+	return strings.Join(overlay(bg, box, x, y, w), "\n")
+}
+
+// catContent is what goes inside the popup: the query, a status line, and the
+// grid of category boxes.
+func (m Model) catContent(w, h int) []string {
 	cells := catGroups(m.catRows())
 	cols, boxW, gap := catCols(w)
 	rows := catLayout(cells, cols)
 
 	title := focusMark(!m.parts.field.Focused()) +
-		subtleStyle.Render("pick a category to narrow the results  ") +
-		dimStyle.Render(fmt.Sprintf("%d in %s", len(m.parts.results), m.srcLabel()))
+		subtleStyle.Render("pick a category to narrow the results")
 	query := focusMark(m.parts.field.Focused()) + m.parts.field.View()
 
 	var status string
@@ -429,13 +472,42 @@ func (m Model) viewCategories(w, h int) string {
 		out = append(out, "")
 	}
 	out = out[:h-1]
+	out = append(out, dimStyle.Render(catFooter(len(rows), m.cat.top, vis, w)))
 	// Every line goes through padRender: a box row that overran would push the
-	// panel border out and skew the whole grid.
+	// popup border out and skew the whole grid.
 	for i := range out {
 		out[i] = padRender(out[i], w)
 	}
-	return strings.Join(out, "\n") + "\n" +
-		padRender(dimStyle.Render("  ↑↓←→ pick · enter narrow to it · tab the results · esc back"), w)
+	return out
+}
+
+// catFooter names the keys, and says when the grid runs past the popup — rows
+// scrolling away with nothing on screen to say so reads as "that's all of them".
+func catFooter(rows, top, vis, w int) string {
+	var off []string
+	if top > 0 {
+		off = append(off, fmt.Sprintf("%d↑", top))
+	}
+	if n := rows - top - vis; n > 0 {
+		off = append(off, fmt.Sprintf("%d↓", n))
+	}
+	tail := ""
+	if len(off) > 0 {
+		tail = "   " + strings.Join(off, " ") + " more"
+	}
+	// The offscreen count is the part that must survive a narrow popup, so the
+	// key list is what gets shortened.
+	for _, keys := range []string{
+		"↑↓←→ pick · enter narrow to it · tab the results · esc back",
+		"↑↓←→ pick · enter narrow · tab results · esc back",
+		"↑↓←→ pick · enter narrow · esc back",
+		"↑↓←→ · enter · esc",
+	} {
+		if lipgloss.Width(keys)+lipgloss.Width(tail) <= w {
+			return keys + tail
+		}
+	}
+	return strings.TrimSpace(tail)
 }
 
 // catBox draws one category as a three-line box: top rule, name, count.

@@ -230,3 +230,138 @@ func TestCategoryPanelSaysWhereTheBoxesComeFrom(t *testing.T) {
 		t.Errorf("the panel should be honest about its source:\n%s", out)
 	}
 }
+
+// The panel is a popup: it floats over the results rather than replacing them, so
+// you can still see what you're narrowing.
+func TestCategoryPanelFloatsOverTheResults(t *testing.T) {
+	m := catModel(t)
+	w, h := m.contentW(), m.contentH()
+
+	closed := stripANSI(m.viewParts(w, h))
+	open := stripANSI(m.viewCategories(w, h))
+	if closed == open {
+		t.Fatal("opening the popup changed nothing")
+	}
+	// the popup's own frame is there
+	if !strings.Contains(open, "Categories ·") {
+		t.Error("the popup has no title")
+	}
+	// and so is the table behind it: its column header survives on both sides
+	if !strings.Contains(open, "CODE") {
+		t.Errorf("the results are gone — this is a replacement, not a popup:\n%s", open)
+	}
+	var pinned int
+	for _, ln := range strings.Split(open, "\n") {
+		if strings.Contains(ln, "│") && strings.Contains(ln, "░") {
+			pinned++
+		}
+	}
+	if pinned == 0 {
+		t.Error("no shadowed rows — the popup isn't lifting off the page")
+	}
+}
+
+// A popup is only as tall as its categories need, and never taller than the page.
+func TestCategoryPopupFitsItsContent(t *testing.T) {
+	small := catModel(t)
+	small.parts.results = []part.Part{catPart("C1", "Capacitors", "Tantalum Capacitors")}
+	small.w, small.h = 130, 40
+	_, _, _, shortH := small.catGeom()
+
+	big := catModel(t)
+	big.w, big.h = 130, 40
+	_, _, _, tallH := big.catGeom()
+	if shortH >= tallH {
+		t.Errorf("one category needs %d rows and four need %d — the popup isn't sizing to its content", shortH, tallH)
+	}
+	if _, y, _, ph := big.catGeom(); y+ph > big.contentH() {
+		t.Errorf("the popup runs off the page: y=%d h=%d in %d", y, ph, big.contentH())
+	}
+}
+
+// No line may exceed the panel width, and every line the popup lands on has to be
+// exactly it — a row one column short or long moves the box's right edge and its
+// shadow out of line with the rest.
+func TestCategoryPopupWidthHolds(t *testing.T) {
+	m := catModel(t)
+	for _, size := range [][2]int{{80, 22}, {96, 26}, {130, 34}, {170, 44}, {60, 14}} {
+		m.w, m.h = size[0], size[1]
+		w, h := m.contentW(), m.contentH()
+		_, y, _, ph := m.catGeom()
+		lines := strings.Split(m.viewCategories(w, h), "\n")
+		if len(lines) != h {
+			t.Errorf("%dx%d: %d lines, want %d", size[0], size[1], len(lines), h)
+		}
+		touched := 0
+		for i, ln := range lines {
+			got := lipgloss.Width(ln)
+			if got > w {
+				t.Errorf("%dx%d: line %d is %d columns, over the %d available", size[0], size[1], i, got, w)
+			}
+			if i >= y && i < y+ph {
+				touched++
+				if got != w {
+					t.Errorf("%dx%d: popup line %d is %d columns, want exactly %d", size[0], size[1], i, got, w)
+				}
+			}
+		}
+		if touched == 0 {
+			t.Errorf("%dx%d: the popup covered no rows", size[0], size[1])
+		}
+	}
+}
+
+// Grid rows that scroll out of the popup have to be counted on screen, or a short
+// popup silently claims to show every category.
+func TestCategoryFooterCountsWhatScrolledAway(t *testing.T) {
+	if got := catFooter(5, 0, 5, 80); strings.Contains(got, "more") {
+		t.Errorf("nothing is hidden but the footer says %q", got)
+	}
+	if got := catFooter(5, 0, 3, 80); !strings.Contains(got, "2↓ more") {
+		t.Errorf("two rows below, footer = %q", got)
+	}
+	if got := catFooter(5, 1, 3, 80); !strings.Contains(got, "1↑") || !strings.Contains(got, "1↓") {
+		t.Errorf("a row each way, footer = %q", got)
+	}
+	// the count outlives the key list when the popup is narrow
+	for _, w := range []int{60, 48, 34, 20} {
+		got := catFooter(9, 2, 3, w)
+		if lipgloss.Width(got) > w {
+			t.Errorf("width %d: footer is %d columns: %q", w, lipgloss.Width(got), got)
+		}
+		if !strings.Contains(got, "2↑") || !strings.Contains(got, "4↓") {
+			t.Errorf("width %d dropped the offscreen count: %q", w, got)
+		}
+	}
+}
+
+// overlay has to leave the background showing on both sides of the box and keep
+// the line width exact.
+func TestOverlayKeepsWhatItDoesNotCover(t *testing.T) {
+	bg := []string{
+		strings.Repeat("a", 40),
+		strings.Repeat("b", 40),
+		strings.Repeat("c", 40),
+	}
+	out := overlay(bg, []string{"XXXX", "YYYY"}, 10, 1, 40)
+	if len(out) != 3 {
+		t.Fatalf("%d lines back, want 3", len(out))
+	}
+	if out[0] != bg[0] {
+		t.Error("a row above the box should be untouched")
+	}
+	for i, ln := range out {
+		if got := lipgloss.Width(ln); got != 40 {
+			t.Errorf("line %d is %d columns, want 40", i, got)
+		}
+	}
+	mid := stripANSI(out[1])
+	if want := strings.Repeat("b", 10) + "XXXX" + strings.Repeat("b", 26); mid != want {
+		t.Errorf("row 1 =\n  %q\nwant\n  %q", mid, want)
+	}
+	// a box wider than what's left gets cut rather than pushing the line out
+	wide := overlay(bg, []string{strings.Repeat("Z", 50)}, 30, 0, 40)
+	if got := lipgloss.Width(wide[0]); got != 40 {
+		t.Errorf("an over-wide box gave a %d column line", got)
+	}
+}

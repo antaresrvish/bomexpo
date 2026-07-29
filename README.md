@@ -48,9 +48,9 @@ value, package and type. As you move through the table, the side panel shows the
 part's stock, price and specs next to a live board preview. Once everything is assigned
 and in stock, the Check tab writes the zip you upload to JLCPCB.
 
-In the Parts tab, `/` opens the category panel: the same query on top, and every category
-your results fall into below, boxed and grouped the way the source groups them. Arrows pick
-one, `enter` narrows the table to it. The boxes come from the results, not a catalogue —
+In the Parts tab, `/` opens a popup over the results: the same query on top, and every
+category your results fall into below, boxed and grouped the way the source groups them.
+Arrows pick one, `enter` narrows the table to it. The boxes come from the results, not a catalogue —
 neither LCSC nor JLCPCB will search inside a category, but both label every part with one.
 
 Common keys: `enter` assign · `a` auto-assign · `o` cycle rotation override · `x` exclude
