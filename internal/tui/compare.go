@@ -510,25 +510,30 @@ func (m Model) compareCard(idx int, diff []cmpRow, top, w, drawH, factH int) []s
 	return append(out, border.Render("╰"+strings.Repeat("─", inner)+"╯"))
 }
 
-// compareFootprint draws the part's land pattern. A pinned part carries a code,
-// not a footprint, so it's found through whichever line item uses that code.
+// compareFootprint draws the part's land pattern: from the board when the part
+// is on it, otherwise from the copy downloaded for the comparison.
 func (m Model) compareFootprint(p part.Part, w, h int) []string {
-	for i := range m.items {
-		if m.items[i].LCSC != p.Code {
-			continue
+	if lands := m.boardLandsFor(p.Code); len(lands) > 0 {
+		rot := 0.0
+		if i := m.itemWithCode(p.Code); i >= 0 {
+			rot = m.rotOf(i)
 		}
-		if lands := m.landsFor(i); len(lands) > 0 {
-			if img := render.Footprint(lands, render.FootprintOptions{
-				W: w, H: h, Rotate: m.rotOf(i),
-			}); img != "" {
-				return strings.Split(img, "\n")
-			}
+		if img := render.Footprint(lands, render.FootprintOptions{W: w, H: h, Rotate: rot}); img != "" {
+			return strings.Split(img, "\n")
 		}
-		break
 	}
+	if fp, ok := m.edaLands[p.Code]; ok && len(fp.Lands) > 0 {
+		if img := render.Footprint(fp.Lands, render.FootprintOptions{W: w, H: h}); img != "" {
+			return strings.Split(img, "\n")
+		}
+	}
+
 	pkg := p.Package
+	if fp, ok := m.edaLands[p.Code]; ok && fp.Package != "" {
+		pkg = fp.Package
+	}
 	if pkg == "" {
 		pkg = "unknown package"
 	}
-	return []string{"", dimStyle.Render("  " + pkg), dimStyle.Render("  not on this board")}
+	return []string{"", dimStyle.Render("  " + pkg), dimStyle.Render("  fetching footprint…")}
 }

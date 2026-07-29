@@ -187,7 +187,9 @@ func (m Model) valueSuggestions(key, partial string, neg bool) []suggestion {
 
 	out := make([]suggestion, 0, len(order))
 	for _, v := range order {
-		if partial != "" && !strings.Contains(strings.ToLower(v), partial) {
+		// narrow the same way the filter will, so the dropdown never offers a
+		// value that the query would then throw away
+		if !fieldMatch(key, v, partial) {
 			continue
 		}
 		full := key + ":" + v

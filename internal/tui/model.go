@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bomexpo/internal/config"
+	"bomexpo/internal/easyeda"
 	"bomexpo/internal/export"
 	"bomexpo/internal/kicad"
 	"bomexpo/internal/part"
@@ -94,11 +95,16 @@ type Model struct {
 	board       *kicad.Board
 	designNets  []kicad.Net
 	designLands map[string][]kicad.Land
-	assigned    []*part.Part
-	excluded    []bool
-	layers      int
-	boardW      float64
-	boardH      float64
+
+	// eda fetches land patterns for parts that aren't on this board, so the
+	// compare cards can still draw them.
+	eda      *easyeda.Client
+	edaLands map[string]easyeda.Footprint
+	assigned []*part.Part
+	excluded []bool
+	layers   int
+	boardW   float64
+	boardH   float64
 
 	// cplArg is the placement csv named on the command line, used when the
 	// design being opened is a BOM csv.
@@ -152,7 +158,10 @@ func New(opt Options) Model {
 	srcs := source.New()
 	idx, unknown := source.Start(srcs, config.Load(), opt.Source)
 
-	m := Model{srcs: srcs, srcIdx: idx, mode: modeLoad, spin: sp, cplArg: opt.CPL}
+	m := Model{
+		srcs: srcs, srcIdx: idx, mode: modeLoad, spin: sp, cplArg: opt.CPL,
+		eda: easyeda.New(), edaLands: map[string]easyeda.Footprint{},
+	}
 	if unknown != "" {
 		m.err = fmt.Sprintf("unknown source %q — using %s (have: %s)",
 			unknown, srcs[idx].ID(), strings.Join(source.IDs(srcs), ", "))
@@ -279,6 +288,27 @@ func (m Model) detailCmd(idx int, code string) tea.Cmd {
 		}
 		p, err := src.Detail(code)
 		return detailDoneMsg{idx: idx, part: p, err: err}
+	}
+}
+
+// footprintDoneMsg carries a land pattern downloaded for a part that isn't on
+// the board.
+type footprintDoneMsg struct {
+	code string
+	fp   easyeda.Footprint
+	err  error
+}
+
+// footprintCmd downloads a part's land pattern. Nothing depends on it arriving —
+// the card shows the package name until it does.
+func (m Model) footprintCmd(code string) tea.Cmd {
+	eda := m.eda
+	return func() tea.Msg {
+		if eda == nil {
+			return footprintDoneMsg{code: code, err: errNoSource}
+		}
+		fp, err := eda.Fetch(code)
+		return footprintDoneMsg{code: code, fp: fp, err: err}
 	}
 }
 

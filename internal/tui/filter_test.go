@@ -126,6 +126,58 @@ func TestFilterReportsUnknownKeys(t *testing.T) {
 	}
 }
 
+// A value query must not match a longer number that merely contains it: 1k is
+// not 5.1k, and asking for one and getting the other is worse than useless.
+func TestFilterValueMatchesTokenStartsOnly(t *testing.T) {
+	m := filterModel(t)
+	m.items = []kicad.Item{
+		{Bases: []string{"R1"}, Designators: []string{"R1"}, Value: "1k", Footprint: "R_0402_1005Metric", Quantity: 1},
+		{Bases: []string{"R2"}, Designators: []string{"R2"}, Value: "5.1k", Footprint: "R_0402_1005Metric", Quantity: 1},
+		{Bases: []string{"R3"}, Designators: []string{"R3"}, Value: "1kΩ ±1%", Footprint: "R_0603_1608Metric", Quantity: 1},
+		{Bases: []string{"R4"}, Designators: []string{"R4"}, Value: "21k", Footprint: "R_0402_1005Metric", Quantity: 1},
+		{Bases: []string{"R5"}, Designators: []string{"R5"}, Value: "10k", Footprint: "R_0402_1005Metric", Quantity: 1},
+	}
+	m.assigned = make([]*part.Part, len(m.items))
+	m.excluded = make([]bool, len(m.items))
+	m = m.reindex()
+
+	for _, c := range []struct{ query, want string }{
+		{"val:1k", "R1,R3"}, // not 5.1k, not 21k
+		{"val:5.1k", "R2"},
+		{"val:10k", "R5"},
+		{"val:1", "R1,R3,R5"}, // a prefix still narrows as you type
+		{"1k", "R1,R3"},       // bare text follows the same rule
+	} {
+		if got := shown(applyFilter(t, m, c.query)); got != c.want {
+			t.Errorf("%-12q → %s, want %s", c.query, got, c.want)
+		}
+	}
+
+	// footprints stay substring, since their names are compound
+	if got, want := shown(applyFilter(t, m, "fp:0402")), "R1,R2,R4,R5"; got != want {
+		t.Errorf("fp:0402 → %s, want %s", got, want)
+	}
+}
+
+// The dropdown has to narrow the same way, or it offers values the query then
+// throws away.
+func TestSuggestNarrowsLikeTheFilter(t *testing.T) {
+	m := filterModel(t)
+	m.items = []kicad.Item{
+		{Bases: []string{"R1"}, Designators: []string{"R1"}, Value: "1k", Quantity: 1},
+		{Bases: []string{"R2"}, Designators: []string{"R2"}, Value: "5.1k", Quantity: 1},
+	}
+	m.assigned = make([]*part.Part, 2)
+	m.excluded = make([]bool, 2)
+	mm, _ := m.reindex().openFilter()
+	m = mm.(Model)
+	m.filter.field.SetValue("val:1k")
+
+	if got := offered(m); got != "1k=1" {
+		t.Errorf("val:1k offered %q, want just 1k", got)
+	}
+}
+
 func TestFilterParseEdgeCases(t *testing.T) {
 	if parseFilter("   ").active() {
 		t.Error("whitespace should not count as a filter")

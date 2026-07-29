@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"bomexpo/internal/easyeda"
 	"bomexpo/internal/kicad"
 	"bomexpo/internal/part"
 )
@@ -154,13 +155,75 @@ func TestCompareCardShowsFootprintOrSaysWhy(t *testing.T) {
 		t.Errorf("C8734 should draw its footprint, got %q", stripANSI(drawn))
 	}
 
-	// C8304 isn't, so the card says so instead of leaving a hole
+	// C8304 isn't on the board, so until its footprint arrives the card names
+	// the package and says one is coming
 	missing := stripANSI(strings.Join(m.compareFootprint(m.parts.pinned[1], 30, 6), "\n"))
-	if !strings.Contains(missing, "not on this board") {
-		t.Errorf("want an explanation, got %q", missing)
+	if !strings.Contains(missing, "fetching") {
+		t.Errorf("want a note that a download is under way, got %q", missing)
 	}
 	if !strings.Contains(missing, "LQFP-48") {
-		t.Errorf("want the package named as a fallback, got %q", missing)
+		t.Errorf("want the package named meanwhile, got %q", missing)
+	}
+
+	// once downloaded, the card draws it like any other
+	m.edaLands["C8304"] = easyeda.Footprint{Code: "C8304", Package: "LQFP-48", Lands: []kicad.Land{
+		{Name: "1", X: -2, Y: -2, W: 0.3, H: 1.2, First: true},
+		{Name: "2", X: 2, Y: -2, W: 0.3, H: 1.2},
+		{Name: "3", X: 0, Y: 2, W: 0.3, H: 1.2},
+	}}
+	fetched := strings.Join(m.compareFootprint(m.parts.pinned[1], 30, 6), "\n")
+	if !strings.Contains(fetched, "▀") {
+		t.Errorf("a downloaded footprint should draw, got %q", stripANSI(fetched))
+	}
+}
+
+// A footprint is only downloaded when we don't already have it.
+func TestLandsCmdSkipsWhatWeHave(t *testing.T) {
+	m := compareModel(t)
+	m.pcbPath = "/tmp/x.kicad_pcb"
+	m.items = []kicad.Item{{
+		Bases: []string{"U1"}, Designators: []string{"U1"},
+		Footprint: "LQFP-48", Quantity: 1, LCSC: "C8734",
+	}}
+	m.assigned = make([]*part.Part, 1)
+	m.excluded = make([]bool, 1)
+	m.designLands = map[string][]kicad.Land{"LQFP-48": {{Name: "1", W: 1, H: 1}}}
+	m = m.reindex()
+
+	if m.landsCmd("C8734") != nil {
+		t.Error("a part on the board needs no download")
+	}
+	if m.landsCmd("") != nil {
+		t.Error("an empty code needs no download")
+	}
+	if m.landsCmd("C8304") == nil {
+		t.Error("a part we know nothing about should be fetched")
+	}
+
+	m.edaLands["C8304"] = easyeda.Footprint{Code: "C8304", Lands: []kicad.Land{{W: 1, H: 1}}}
+	if m.landsCmd("C8304") != nil {
+		t.Error("an already-downloaded footprint should not be fetched again")
+	}
+}
+
+// A failed download must not wipe what's already there, and must not crash.
+func TestFootprintDoneIgnoresFailures(t *testing.T) {
+	m := compareModel(t)
+	m.edaLands["C1"] = easyeda.Footprint{Code: "C1", Lands: []kicad.Land{{W: 1, H: 1}}}
+
+	for _, msg := range []footprintDoneMsg{
+		{code: "C1", err: errNoSource},
+		{code: "C1", fp: easyeda.Footprint{Code: "C1"}}, // no lands
+		{code: "C2", err: errNoSource},
+	} {
+		mm, _ := m.Update(msg)
+		m = mm.(Model)
+	}
+	if len(m.edaLands["C1"].Lands) != 1 {
+		t.Error("a failed download overwrote a good footprint")
+	}
+	if _, bad := m.edaLands["C2"]; bad {
+		t.Error("a failed download should not record anything")
 	}
 }
 

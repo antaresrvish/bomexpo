@@ -90,56 +90,73 @@ func (m Model) mouseCheck(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 }
 
 func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// While the path is being edited it owns the keyboard; the rest of the time
+	// the page does, so the board and the issue list are actually reachable.
+	if m.check.out.Focused() {
+		switch msg.String() {
+		case "esc":
+			m.check.out.Blur()
+			return m, nil
+		case "enter":
+			m.check.out.Blur()
+			return m.startExport()
+		}
+		m.check.out.Update(msg)
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "esc":
-		m.check.out.Blur()
 		m.mode = modeTable
 		return m, nil
 	case "tab":
-		m.check.out.Blur()
 		return m.cycleTab(1)
 	case "shift+tab":
-		m.check.out.Blur()
 		return m.cycleTab(-1)
-	case "up":
-		m.check.top = max(0, m.check.top-1)
-		return m, nil
-	case "down":
-		m.check.top++
-		return m, nil
-	// The output path has the keyboard here, so the board view uses modifiers
-	// the text field doesn't want.
-	case "ctrl+up":
-		m.boardv = m.boardv.zoomBy(zoomStep)
-		return m, nil
-	case "ctrl+down":
-		m.boardv = m.boardv.zoomBy(1 / zoomStep)
-		return m, nil
-	case "shift+left":
-		m.boardv = m.boardv.panBy(-1, 0)
-		return m, nil
-	case "shift+right":
-		m.boardv = m.boardv.panBy(1, 0)
-		return m, nil
-	case "shift+up":
-		m.boardv = m.boardv.panBy(0, -1)
-		return m, nil
-	case "shift+down":
-		m.boardv = m.boardv.panBy(0, 1)
+	case "e":
+		// edit the output path; esc or enter hands the keyboard back
+		m.check.out.Focus()
 		return m, nil
 	case "enter":
-		path := strings.TrimSpace(m.check.out.Value())
-		if path == "" {
-			m.err = "output path is empty"
-			return m, nil
-		}
-		m.err = ""
-		m.loading = true
-		m.status = "Exporting (generating Gerbers)…"
-		return m, m.exportCmd(path)
+		return m.startExport()
+	case "up", "k":
+		m.check.top = max(0, m.check.top-1)
+	case "down", "j":
+		m.check.top++
+	case "t":
+		return m.openRender("top")
+	case "b":
+		return m.openRender("bottom")
+	case "i":
+		return m.openRender("iso")
+	case "+", "=":
+		m.boardv = m.boardv.zoomBy(zoomStep)
+	case "-", "_":
+		m.boardv = m.boardv.zoomBy(1 / zoomStep)
+	case "0":
+		m.boardv = m.boardv.resetView()
+	case "left", "h":
+		m.boardv = m.boardv.panBy(-1, 0)
+	case "right", "l":
+		m.boardv = m.boardv.panBy(1, 0)
+	case "shift+up":
+		m.boardv = m.boardv.panBy(0, -1)
+	case "shift+down":
+		m.boardv = m.boardv.panBy(0, 1)
 	}
-	m.check.out.Update(msg)
 	return m, nil
+}
+
+func (m Model) startExport() (tea.Model, tea.Cmd) {
+	path := strings.TrimSpace(m.check.out.Value())
+	if path == "" {
+		m.err = "output path is empty — press e to type one"
+		return m, nil
+	}
+	m.err = ""
+	m.loading = true
+	m.status = "Exporting (generating Gerbers)…"
+	return m, m.exportCmd(path)
 }
 
 // costAt totals the order for a given board count, buying at least each part's
@@ -314,9 +331,13 @@ func (m Model) viewCheck(w, h int) string {
 	// The numbers on the left, the board on the right at the full height it can
 	// get. The output field spans the bottom because it acts on both.
 	body := sideBySide(lines, m.boardPane(rightW, paneH), leftW, w, paneH)
+	label, hint := dimStyle.Render("  Output  "), "e edit · enter export · * = some parts unassigned"
+	if m.check.out.Focused() {
+		label, hint = accentStyle.Render("▸ Output  "), "enter export · esc done"
+	}
 	body = append(body,
-		labelStyle.Render("Output  ")+m.check.out.View(),
-		dimStyle.Render("enter → order-ready zip (BOM + CPL + Gerbers) · * = some parts unassigned"))
+		label+m.check.out.View(),
+		dimStyle.Render("  "+hint))
 	return strings.Join(body, "\n")
 }
 
@@ -358,9 +379,9 @@ func (m Model) boardPane(w, h int) []string {
 // boardCaption says what's being drawn and how to move it.
 func (m Model) boardCaption() string {
 	if n := len(m.placements); n > 0 {
-		return dimStyle.Render(fmt.Sprintf("%d placed · ^↑↓ zoom · shift+arrows pan", n))
+		return dimStyle.Render(fmt.Sprintf("%d placed · +- zoom · ←→ pan · 0 reset", n))
 	}
-	return dimStyle.Render("^↑↓ zoom · shift+arrows pan")
+	return dimStyle.Render("+- zoom · ←→ pan · 0 reset")
 }
 
 func rotFamily(fp string) string {

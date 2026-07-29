@@ -150,13 +150,20 @@ func TestBoardZoomAndPan(t *testing.T) {
 		t.Fatalf("zoom starts at %g, want 1", m.boardv.zoom)
 	}
 
-	key := func(m Model, code rune, mod tea.KeyMod) Model {
-		mm, _ := m.updateCheck(tea.KeyPressMsg{Code: code, Mod: mod})
+	// the output path is not focused on entry, so the page's own keys work
+	if m.check.out.Focused() {
+		t.Fatal("the output path should not grab the keyboard on entry")
+	}
+	text := func(m Model, s string, code rune) Model {
+		mm, _ := m.updateCheck(tea.KeyPressMsg{Text: s, Code: code})
 		return mm.(Model)
 	}
-	zoomIn := func(m Model) Model { return key(m, tea.KeyUp, tea.ModCtrl) }
-	zoomOut := func(m Model) Model { return key(m, tea.KeyDown, tea.ModCtrl) }
-	panRight := func(m Model) Model { return key(m, tea.KeyRight, tea.ModShift) }
+	zoomIn := func(m Model) Model { return text(m, "+", '+') }
+	zoomOut := func(m Model) Model { return text(m, "-", '-') }
+	panRight := func(m Model) Model {
+		mm, _ := m.updateCheck(tea.KeyPressMsg{Code: tea.KeyRight})
+		return mm.(Model)
+	}
 
 	// panning does nothing while the whole board fits
 	if got := panRight(m).boardv.panX; got != 0 {
@@ -165,7 +172,7 @@ func TestBoardZoomAndPan(t *testing.T) {
 
 	m = zoomIn(m)
 	if m.boardv.zoom <= 1 {
-		t.Errorf("ctrl+up should zoom in, got %g", m.boardv.zoom)
+		t.Errorf("+ should zoom in, got %g", m.boardv.zoom)
 	}
 	m = panRight(m)
 	if m.boardv.panX <= 0 {

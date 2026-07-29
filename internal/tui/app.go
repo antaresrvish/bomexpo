@@ -52,6 +52,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pinDetailMsg:
 		return m.updatePinDetail(msg)
 
+	case footprintDoneMsg:
+		// a failed download just leaves the card showing the package name
+		if msg.err == nil && len(msg.fp.Lands) > 0 && m.edaLands != nil {
+			m.edaLands[msg.code] = msg.fp
+		}
+		return m, nil
+
 	case projectLoadedMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -247,7 +254,8 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	switch md {
 	case modeCheck:
 		m.check.setDefault(m.sourcePath())
-		m.check.out.Focus()
+		// deliberately not focused: the page's own keys work until you press e
+		m.check.out.Blur()
 		m.mode = md
 		return m, nil
 	case modeLoad:
@@ -264,7 +272,14 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 		}
 		m.compare.sel = clampInt(m.compare.sel, 0, len(m.parts.pinned)-1)
 		m.mode = md
-		return m, nil
+		// pick up any footprint we still don't have, e.g. after a restart
+		var cmds []tea.Cmd
+		for _, p := range m.parts.pinned {
+			if c := m.landsCmd(p.Code); c != nil {
+				cmds = append(cmds, c)
+			}
+		}
+		return m, tea.Batch(cmds...)
 	}
 	m.mode = md
 	return m, nil
@@ -516,8 +531,12 @@ func (m Model) helpLine() string {
 	case modeNets:
 		hints = [][2]string{{"type", "narrow"}, {"↑↓", "nets"}, {"enter", "filter by it"}, {"esc", "back"}}
 	case modeCheck:
-		hints = [][2]string{{"click", "go to part"}, {"enter", "export"},
-			{"^↑↓", "zoom board"}, {"tab", "switch"}, {"esc", "back"}}
+		if m.check.out.Focused() {
+			hints = [][2]string{{"type", "output path"}, {"enter", "export"}, {"esc", "done"}}
+			break
+		}
+		hints = [][2]string{{"↑↓", "issues"}, {"+-", "zoom"}, {"←→", "pan"}, {"t/b/i", "3D"},
+			{"e", "edit path"}, {"enter", "export"}, {"esc", "back"}}
 	}
 	parts := make([]string, len(hints))
 	for i, h := range hints {

@@ -634,12 +634,34 @@ func (m Model) miniBoard(w, h int) []string {
 	return strings.Split(img, "\n")
 }
 
-// landsFor is the pad geometry of the selected line item's footprint.
+// landsFor is the pad geometry of a line item's footprint, from the board.
 func (m Model) landsFor(i int) []kicad.Land {
 	if i < 0 || i >= len(m.items) || m.designLands == nil {
 		return nil
 	}
 	return m.designLands[m.items[i].Footprint]
+}
+
+// itemWithCode finds the line item assigned the given part code, or -1.
+func (m Model) itemWithCode(code string) int {
+	if code == "" {
+		return -1
+	}
+	for i := range m.items {
+		if m.items[i].LCSC == code {
+			return i
+		}
+	}
+	return -1
+}
+
+// boardLandsFor is the board's own geometry for a part code, when it's used on
+// this design.
+func (m Model) boardLandsFor(code string) []kicad.Land {
+	if i := m.itemWithCode(code); i >= 0 {
+		return m.landsFor(i)
+	}
+	return nil
 }
 
 // miniFootprint draws the selected part's pads, turned the way the CPL will

@@ -204,7 +204,19 @@ func (m Model) togglePin() (tea.Model, tea.Cmd) {
 	}
 	m.parts.pinned = append(m.parts.pinned, p)
 	m.flash = fmt.Sprintf("pinned %s (%d/%d)", p.Code, len(m.parts.pinned), maxPinned)
-	return m, m.pinDetailCmd(p.Source, p.Code)
+	return m, tea.Batch(m.pinDetailCmd(p.Source, p.Code), m.landsCmd(p.Code))
+}
+
+// landsCmd downloads a part's footprint unless we already have it — from the
+// board or from an earlier download.
+func (m Model) landsCmd(code string) tea.Cmd {
+	if code == "" || m.boardLandsFor(code) != nil {
+		return nil
+	}
+	if _, have := m.edaLands[code]; have {
+		return nil
+	}
+	return m.footprintCmd(code)
 }
 
 func (m Model) updatePartsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

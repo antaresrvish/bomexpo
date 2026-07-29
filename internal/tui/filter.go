@@ -19,8 +19,9 @@ import (
 //	0402             bare text: reference, value or footprint
 //	-st:excluded     leading minus inverts the term
 //
-// Matching is case-insensitive substring throughout, so net:3v3 finds +3V3 and
-// ref:C1 finds C1, C10, C12.
+// Matching is case-insensitive, and per-field — see fieldMatch. Values and
+// references match a token's start (val:1k does not find 5.1k), while footprints
+// and nets match anywhere (net:3v3 finds +3V3).
 var filterKeys = []string{"net", "ref", "val", "fp", "lcsc", "lib", "st"}
 
 type filterTerm struct {
@@ -108,23 +109,71 @@ func (t filterTerm) hit(m Model, i int) bool {
 	it := m.items[i]
 	switch t.key {
 	case "net":
-		return anyContains(it.Nets, t.want)
+		return anyMatch("net", it.Nets, t.want)
 	case "ref":
-		return anyContains(it.Designators, t.want) || contains(it.ID(), t.want)
+		return anyMatch("ref", it.Designators, t.want) || fieldMatch("ref", it.ID(), t.want)
 	case "val":
-		return contains(it.Value, t.want)
+		return fieldMatch("val", it.Value, t.want)
 	case "fp":
-		return contains(it.Footprint, t.want)
+		return fieldMatch("fp", it.Footprint, t.want)
 	case "lcsc":
-		return contains(it.LCSC, t.want)
+		return fieldMatch("lcsc", it.LCSC, t.want)
 	case "lib":
 		return t.hitLib(m.libOf(i))
 	case "st":
 		return t.hitState(m, i)
 	}
 	// bare text: the columns you'd scan by eye
-	return contains(it.ID(), t.want) || anyContains(it.Designators, t.want) ||
-		contains(it.Value, t.want) || contains(it.Footprint, t.want)
+	return fieldMatch("ref", it.ID(), t.want) || anyMatch("ref", it.Designators, t.want) ||
+		fieldMatch("val", it.Value, t.want) || fieldMatch("fp", it.Footprint, t.want)
+}
+
+// fieldMatch is the one place that decides what "matches" means per field, so
+// the dropdown offers exactly what the filter will keep.
+//
+// Values, references and part codes are short whole tokens, so they match on a
+// token's start: otherwise val:1k finds 5.1k, which is never what you meant.
+// Footprints and net names are compound ("C_0402_1005Metric", "+3V3"), so a
+// substring anywhere is what's useful there.
+func fieldMatch(key, hay, needle string) bool {
+	if needle == "" {
+		return true
+	}
+	switch key {
+	case "val", "ref", "lcsc":
+		return tokenPrefix(hay, needle)
+	default:
+		return contains(hay, needle)
+	}
+}
+
+func anyMatch(key string, hay []string, needle string) bool {
+	for _, h := range hay {
+		if fieldMatch(key, h, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// tokenPrefix reports whether any word in hay starts with needle.
+func tokenPrefix(hay, needle string) bool {
+	for _, tok := range strings.FieldsFunc(strings.ToLower(hay), isTokenSep) {
+		if strings.HasPrefix(tok, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTokenSep splits a value into the words a person would read: "4.7uF ±10% 16V"
+// is three, and "5.1k" is one.
+func isTokenSep(r rune) bool {
+	switch r {
+	case ' ', '\t', ',', ';', '/', '(', ')', '[', ']', '±', '%', '~':
+		return true
+	}
+	return false
 }
 
 func (t filterTerm) hitLib(k part.LibKind) bool {
@@ -164,15 +213,6 @@ func (t filterTerm) hitState(m Model, i int) bool {
 
 func contains(hay, needle string) bool {
 	return strings.Contains(strings.ToLower(hay), needle)
-}
-
-func anyContains(hay []string, needle string) bool {
-	for _, h := range hay {
-		if contains(h, needle) {
-			return true
-		}
-	}
-	return false
 }
 
 // filterState is the filter bar: the query being typed, the one in force, and
