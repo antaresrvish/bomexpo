@@ -106,6 +106,22 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.saveCmd()
 	case "d":
 		m.openDatasheet(m.sel())
+	case "n":
+		return m.openNetPicker()
+	case "+", "=":
+		m.boardv = m.boardv.zoomBy(zoomStep)
+	case "-", "_":
+		m.boardv = m.boardv.zoomBy(1 / zoomStep)
+	case "0":
+		m.boardv = m.boardv.resetView()
+	case "shift+left":
+		m.boardv = m.boardv.panBy(-1, 0)
+	case "shift+right":
+		m.boardv = m.boardv.panBy(1, 0)
+	case "shift+up":
+		m.boardv = m.boardv.panBy(0, -1)
+	case "shift+down":
+		m.boardv = m.boardv.panBy(0, 1)
 	}
 	m.clampScroll()
 	return m, nil
@@ -603,7 +619,14 @@ func (m Model) miniBoard(w, h int) []string {
 			hl[d] = true
 		}
 	}
-	img := render.Render(m.board, m.placements, render.Options{W: w, H: h, ShowCopper: true, Highlight: hl})
+	img := render.Render(m.board, m.placements, render.Options{
+		W: w, H: h, ShowCopper: true,
+		Highlight: hl,
+		Match:     m.matchedRefs(),
+		Zoom:      m.boardv.zoom,
+		PanX:      m.boardv.panX,
+		PanY:      m.boardv.panY,
+	})
 	if img == "" {
 		return []string{dimStyle.Render("board too small")}
 	}
@@ -633,6 +656,9 @@ func (m Model) boardHeader() string {
 			b += dimStyle.Render(s.text)
 		}
 		b += " "
+	}
+	if m.boardv.zoom > zoomMin {
+		b += warnStyle.Render(fmt.Sprintf("%.1f×", m.boardv.zoom))
 	}
 	return b
 }

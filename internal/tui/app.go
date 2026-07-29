@@ -64,6 +64,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.items = d.Items
 		m.placements = d.Placements
 		m.board = d.Board
+		m.designNets = d.Nets
+		m.boardv = newBoardState()
 		m.layers = d.Layers
 		m.boardW, m.boardH = d.BoardW, d.BoardH
 		m.assigned = make([]*part.Part, len(m.items))
@@ -209,6 +211,8 @@ func (m Model) routeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updatePartsKey(msg)
 	case modeCompare:
 		return m.updateCompareKey(msg)
+	case modeNets:
+		return m.updateNetKey(msg)
 	case modeCheck:
 		return m.updateCheck(msg)
 	}
@@ -230,6 +234,8 @@ func (m Model) routeMouse(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		return m.mouseParts(ms, click, wheel)
 	case modeCompare:
 		return m.mouseCompare(ms, click, wheel)
+	case modeNets:
+		return m.mouseNets(ms, click, wheel)
 	case modeCheck:
 		return m.mouseCheck(ms, click, wheel)
 	}
@@ -267,8 +273,10 @@ func (m Model) cycleTab(dir int) (tea.Model, tea.Cmd) {
 	tabs := m.tabs()
 	cur := 1
 	want := m.mode
-	if want == modeSearch {
-		want = modeTable // search is a detour off Components, not a tab
+	switch want {
+	case modeSearch, modeNets:
+		// detours off Components, not tabs of their own
+		want = modeTable
 	}
 	for i, t := range tabs {
 		if t.mode == want {
@@ -320,6 +328,8 @@ func (m Model) titleBody() (title, body string) {
 		return "Parts · " + m.srcLabel(), m.viewParts(cw, ch)
 	case modeCompare:
 		return m.compareTitle(), m.viewCompare(cw, ch)
+	case modeNets:
+		return "Nets" + projSuffix(m.name), m.viewNets(cw, ch)
 	case modeCheck:
 		return "Final check & export", m.viewCheck(cw, ch)
 	}
@@ -337,7 +347,8 @@ func (m Model) tabBar() string {
 	brand := tabBrand.Render("bomexpo")
 	var segs []string
 	for _, t := range m.tabs() {
-		active := t.mode == m.mode || (m.mode == modeSearch && t.mode == modeTable)
+		onDetour := m.mode == modeSearch || m.mode == modeNets
+		active := t.mode == m.mode || (onDetour && t.mode == modeTable)
 		st := tabInactive
 		if active {
 			st = tabActive
@@ -500,6 +511,8 @@ func (m Model) helpLine() string {
 		hints = append(hints, [2]string{"tab", "switch"})
 	case modeCompare:
 		hints = [][2]string{{"←→", "column"}, {"↑↓", "scroll"}, {"x", "unpin"}, {"d", "datasheet"}, {"esc", "back"}}
+	case modeNets:
+		hints = [][2]string{{"type", "narrow"}, {"↑↓", "nets"}, {"enter", "filter by it"}, {"esc", "back"}}
 	case modeCheck:
 		hints = [][2]string{{"click", "go to part"}, {"enter", "export"}, {"tab", "switch"}, {"esc", "back"}}
 	}

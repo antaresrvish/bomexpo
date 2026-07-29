@@ -9,6 +9,53 @@ type boardState struct {
 	img       string
 	rendering bool
 	rerr      string
+
+	// zoom and pan drive the inline board view. zoom 1 fits the board.
+	zoom       float64
+	panX, panY float64
+}
+
+func newBoardState() boardState { return boardState{zoom: 1} }
+
+const (
+	zoomStep float64 = 1.25
+	zoomMin  float64 = 1
+	zoomMax  float64 = 12
+	panStep  float64 = 4 // subpixels per keypress, scaled by the zoom level
+)
+
+// zoomBy multiplies the zoom, keeping it in range. Zooming back out to the fit
+// level drops the pan too, so there's always a way back to the whole board.
+func (b boardState) zoomBy(f float64) boardState {
+	b.zoom = clampFloat(b.zoom*f, zoomMin, zoomMax)
+	if b.zoom == zoomMin {
+		b.panX, b.panY = 0, 0
+	}
+	return b
+}
+
+func (b boardState) panBy(dx, dy float64) boardState {
+	if b.zoom <= zoomMin {
+		return b // nothing to pan when the whole board already fits
+	}
+	b.panX += dx * panStep * b.zoom
+	b.panY += dy * panStep * b.zoom
+	return b
+}
+
+func (b boardState) resetView() boardState {
+	b.zoom, b.panX, b.panY = 1, 0, 0
+	return b
+}
+
+func clampFloat(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 type renderDoneMsg struct {

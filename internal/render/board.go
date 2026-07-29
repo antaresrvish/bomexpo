@@ -19,6 +19,7 @@ const (
 	cOutline
 	cBottom
 	cTop
+	cMatch
 	cHighlight
 )
 
@@ -30,13 +31,18 @@ var palette = map[byte]color.Color{
 	cOutline:     lipgloss.Color("#a7c957"),
 	cBottom:      lipgloss.Color("#b06de0"),
 	cTop:         lipgloss.Color("#4cc9f0"),
+	cMatch:       lipgloss.Color("#f6bd60"),
 	cHighlight:   lipgloss.Color("#ff477e"),
 }
 
 type Options struct {
 	W, H       int
 	ShowCopper bool
-	Highlight  map[string]bool
+	// Highlight is drawn brightest: the component the cursor is on.
+	Highlight map[string]bool
+	// Match is drawn a step below Highlight, for everything a filter selected.
+	// Nil means no filter, so nothing is singled out.
+	Match      map[string]bool
 	Zoom       float64
 	PanX, PanY float64
 }
@@ -173,6 +179,9 @@ func Render(b *kicad.Board, placements []kicad.Placement, opt Options) string {
 		col := cTop
 		if p.Layer == "bottom" {
 			col = cBottom
+		}
+		if opt.Match[p.Designator] {
+			col = cMatch
 		}
 		if opt.Highlight[p.Designator] {
 			col = cHighlight

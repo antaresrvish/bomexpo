@@ -25,6 +25,7 @@ const (
 	modeSearch
 	modeParts
 	modeCompare
+	modeNets
 	modeCheck
 )
 
@@ -82,6 +83,7 @@ type Model struct {
 	boardv  boardState
 	check   checkState
 	filter  filterState
+	nets    netState
 
 	name       string
 	pcbPath    string // empty for a CSV design
@@ -90,6 +92,7 @@ type Model struct {
 	items      []kicad.Item
 	placements []kicad.Placement
 	board      *kicad.Board
+	designNets []kicad.Net
 	assigned   []*part.Part
 	excluded   []bool
 	layers     int
@@ -158,6 +161,8 @@ func New(opt Options) Model {
 	m.parts = newPartsState()
 	m.check = newCheckState()
 	m.filter = newFilterState()
+	m.nets = newNetState()
+	m.boardv = newBoardState()
 	return m
 }
 
