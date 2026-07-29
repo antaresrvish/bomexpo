@@ -23,7 +23,7 @@ func searchModel(t *testing.T, results []part.Part) Model {
 	m.mode = modeSearch
 	m.search.results = results
 	m.search.total = len(results)
-	return m
+	return m.reindex()
 }
 
 func TestSearchColsGiveLibraryOnlyToCapableSource(t *testing.T) {

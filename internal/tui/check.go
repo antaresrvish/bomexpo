@@ -79,7 +79,10 @@ func (m Model) mouseCheck(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		if row >= 0 && row < len(issues) {
 			m.check.out.Blur()
 			m.mode = modeTable
-			m.cursor = issues[row].idx
+			// issues carry line-item indices; the table cursor is a display row
+			if r := m.rowOf(issues[row].idx); r >= 0 {
+				m.cursor = r
+			}
 			m.clampScroll()
 		}
 	}

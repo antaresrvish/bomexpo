@@ -43,7 +43,7 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		m.cursor = max(0, m.cursor-1)
 	case "down", "j":
-		m.cursor = min(len(m.items)-1, m.cursor+1)
+		m.cursor = min(m.rows()-1, m.cursor+1)
 	case "left", "h":
 		m.hoff = clampInt(m.hoff-8, 0, m.maxHoff())
 	case "right", "l":
@@ -51,16 +51,16 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "g", "home":
 		m.cursor = 0
 	case "G", "end":
-		m.cursor = len(m.items) - 1
+		m.cursor = m.rows() - 1
 	case "pgup":
 		m.cursor = max(0, m.cursor-m.visibleRows())
 	case "pgdown":
-		m.cursor = min(len(m.items)-1, m.cursor+m.visibleRows())
+		m.cursor = min(m.rows()-1, m.cursor+m.visibleRows())
 	case "enter", " ":
 		return m.openSearch(m.cursor)
 	case "x":
-		if m.cursor >= 0 && m.cursor < len(m.excluded) {
-			m.excluded[m.cursor] = !m.excluded[m.cursor]
+		if i := m.sel(); i >= 0 && i < len(m.excluded) {
+			m.excluded[i] = !m.excluded[i]
 		}
 	case "a":
 		return m.startAutoAssign()
@@ -83,7 +83,7 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.saveCmd()
 	case "d":
-		m.openDatasheet(m.cursor)
+		m.openDatasheet(m.sel())
 	}
 	m.clampScroll()
 	return m, nil
@@ -125,7 +125,7 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		case tea.MouseWheelUp:
 			m.cursor = max(0, m.cursor-1)
 		case tea.MouseWheelDown:
-			m.cursor = min(len(m.items)-1, m.cursor+1)
+			m.cursor = min(m.rows()-1, m.cursor+1)
 		}
 		m.clampScroll()
 		return m, nil
@@ -187,15 +187,15 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 			} else {
 				m.sort, m.sortAsc = k, true
 			}
-			return m.sorted(), nil
+			return m.reindex(), nil
 		}
 		return m, nil
 	}
 	row := m.top + (ms.Y - dataTop)
-	if ms.Y >= dataTop && ms.Y < dataTop+visRows && row >= 0 && row < len(m.items) {
+	if ms.Y >= dataTop && ms.Y < dataTop+visRows && row >= 0 && row < m.rows() {
 		m.cursor = row
 		m.clampScroll()
-		if p := m.assigned[row]; p != nil && p.Datasheet != "" {
+		if p := m.assigned[m.at(row)]; p != nil && p.Datasheet != "" {
 			if lo, hi := c.dsRange(); lineX >= lo && lineX < hi {
 				openExternal(p.Datasheet)
 			}
@@ -205,11 +205,11 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 }
 
 func (m *Model) clampScroll() {
-	if len(m.items) == 0 {
+	if len(m.view) == 0 {
 		m.cursor, m.top = 0, 0
 		return
 	}
-	m.cursor = clampInt(m.cursor, 0, len(m.items)-1)
+	m.cursor = clampInt(m.cursor, 0, len(m.view)-1)
 	vis := m.visibleRows()
 	if m.cursor < m.top {
 		m.top = m.cursor
@@ -217,7 +217,7 @@ func (m *Model) clampScroll() {
 	if m.cursor >= m.top+vis {
 		m.top = m.cursor - vis + 1
 	}
-	m.top = clampInt(m.top, 0, max(0, len(m.items)-1))
+	m.top = clampInt(m.top, 0, max(0, len(m.view)-1))
 }
 
 type cols struct{ ref, val, fp, qty, code, stock, price, ds, rot, note int }
@@ -314,7 +314,7 @@ func (m Model) tableBlock(c cols, tableW, h int) []string {
 	rule := borderStyle.Render(strings.Repeat("─", full))
 	lines := []string{crop(head), crop(rule)}
 	visRows := h - 3
-	end := min(len(m.items), m.top+visRows)
+	end := min(m.rows(), m.top+visRows)
 	for i := m.top; i < end; i++ {
 		lines = append(lines, crop(m.rowView(i, c, sep)))
 	}
@@ -347,7 +347,7 @@ func hScrollRow(tableW, total, vis, hoff int) string {
 
 // vScrollCol is the vertical scrollbar drawn between the table and the sidebar.
 func (m Model) vScrollCol(h int) []string {
-	total := len(m.items)
+	total := m.rows()
 	vis := h - 3
 	top := clampInt(m.top, 0, max(0, total-vis))
 	trackTop, trackLen := 2, h-3
@@ -371,7 +371,7 @@ func (m Model) vScrollCol(h int) []string {
 }
 
 func (m Model) vScrollTo(screenY int) Model {
-	total := len(m.items)
+	total := m.rows()
 	vis := m.visibleRows()
 	if total <= vis {
 		return m
@@ -482,8 +482,8 @@ func (m Model) compactOverview(sideW, avail int) []string {
 // selectedInspector renders a labeled card for the highlighted row so the side
 // panel doubles as a live inspector.
 func (m Model) selectedInspector(sideW, budget int) []string {
-	i := m.cursor
-	if i < 0 || i >= len(m.items) || budget < 3 {
+	i := m.sel()
+	if i < 0 || budget < 3 {
 		return nil
 	}
 	it := m.items[i]
@@ -568,8 +568,8 @@ func (m Model) miniBoard(w, h int) []string {
 		return []string{dimStyle.Render("no board outline")}
 	}
 	hl := map[string]bool{}
-	if m.cursor >= 0 && m.cursor < len(m.items) {
-		for _, d := range m.items[m.cursor].Designators {
+	if i := m.sel(); i >= 0 {
+		for _, d := range m.items[i].Designators {
 			hl[d] = true
 		}
 	}
@@ -629,8 +629,14 @@ func boardButtonSpans(sideStartX int) []struct {
 	return out
 }
 
-func (m Model) rowView(i int, c cols, sep string) string {
+// rowView renders one display row. row indexes the visible order; the line item
+// behind it comes from the view index.
+func (m Model) rowView(row int, c cols, sep string) string {
 	full := c.fullWidth()
+	i := m.at(row)
+	if i < 0 {
+		return spaces(full)
+	}
 	it := m.items[i]
 	st := m.stateOf(i)
 	icon, note, noteStyle := stateDecor(st)
@@ -666,7 +672,7 @@ func (m Model) rowView(i int, c cols, sep string) string {
 		pad(rotText, c.rot), pad(note, c.note),
 	}
 
-	if i == m.cursor {
+	if row == m.cursor {
 		line := "▶ " + strings.Join(plain, "   ")
 		return selRowStyle.Render(padRender(line, full))
 	}
@@ -775,11 +781,13 @@ func stateDecor(st itemState) (icon, note string, style lipgloss.Style) {
 	return " ", "", descStyle
 }
 
-func (m Model) openSearch(i int) (tea.Model, tea.Cmd) {
-	if i < 0 || i >= len(m.items) {
+// openSearch starts an assign search for the line item on the given display row.
+func (m Model) openSearch(row int) (tea.Model, tea.Cmd) {
+	i := m.at(row)
+	if i < 0 {
 		return m, nil
 	}
-	m.cursor = i
+	m.cursor = row
 	m.mode = modeSearch
 	it := m.items[i]
 	kw := searchKeyword(it)

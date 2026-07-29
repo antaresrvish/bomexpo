@@ -263,10 +263,10 @@ func (m Model) assignSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	p := f[m.search.cursor]
-	if m.cursor >= 0 && m.cursor < len(m.items) {
-		m.items[m.cursor].LCSC = p.Code
-		m.assigned[m.cursor] = &p
-		m.status = fmt.Sprintf("%s ← %s  %s", m.items[m.cursor].ID(), p.Code, p.MPN)
+	if i := m.sel(); i >= 0 {
+		m.items[i].LCSC = p.Code
+		m.assigned[i] = &p
+		m.status = fmt.Sprintf("%s ← %s  %s", m.items[i].ID(), p.Code, p.MPN)
 	}
 	m.search.field.Blur()
 	m.mode = modeTable
@@ -283,7 +283,11 @@ func (m Model) searchRows() int {
 
 func (m Model) viewSearch(w, h int) string {
 	s := m.search
-	it := m.items[m.cursor]
+	i := m.sel()
+	if i < 0 {
+		return dimStyle.Render("nothing selected to assign")
+	}
+	it := m.items[i]
 
 	title := subtleStyle.Render("assign ") + accentStyle.Render(it.ID()) +
 		subtleStyle.Render(fmt.Sprintf("  (%s · %s)", it.Value, it.Footprint))

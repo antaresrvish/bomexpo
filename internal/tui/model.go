@@ -99,6 +99,10 @@ type Model struct {
 	// design being opened is a BOM csv.
 	cplArg string
 
+	// view holds line-item indices in display order, with the active sort
+	// applied. cursor and top index into this, not into items.
+	view []int
+
 	cursor int
 	top    int
 	hoff   int
@@ -354,8 +358,8 @@ func (m Model) rotOverrideMap() map[string]int {
 // cycleRotOverride steps the selected line item's CPL rotation override
 // through none → 0 → 90 → 180 → 270 → none.
 func (m Model) cycleRotOverride() (tea.Model, tea.Cmd) {
-	i := m.cursor
-	if i < 0 || i >= len(m.items) {
+	i := m.sel()
+	if i < 0 {
 		return m, nil
 	}
 	it := m.items[i]
@@ -376,8 +380,8 @@ func (m Model) cycleRotOverride() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) resetRotOverride() (tea.Model, tea.Cmd) {
-	i := m.cursor
-	if i < 0 || i >= len(m.items) {
+	i := m.sel()
+	if i < 0 {
 		return m, nil
 	}
 	if !m.items[i].HasRotOverride {
@@ -504,27 +508,51 @@ func (m Model) itemLess(i, j int) bool {
 	return kicad.RefLess(a.ID(), b.ID())
 }
 
-// sorted reorders the line items (and the parallel assigned/excluded slices) by
-// the active column and direction, keeping them index-aligned.
-func (m Model) sorted() Model {
-	perm := make([]int, len(m.items))
-	for i := range perm {
-		perm[i] = i
+// rows is how many line items the table is showing.
+func (m Model) rows() int { return len(m.view) }
+
+// at maps a display row to its line-item index, or -1 when the row is empty.
+func (m Model) at(row int) int {
+	if row < 0 || row >= len(m.view) {
+		return -1
 	}
-	sort.SliceStable(perm, func(a, b int) bool {
-		if m.sortAsc {
-			return m.itemLess(perm[a], perm[b])
+	return m.view[row]
+}
+
+// sel is the line item under the cursor, or -1 when there is none.
+func (m Model) sel() int { return m.at(m.cursor) }
+
+// rowOf finds the display row showing line item i, or -1 when it isn't shown.
+func (m Model) rowOf(i int) int {
+	for row, idx := range m.view {
+		if idx == i {
+			return row
 		}
-		return m.itemLess(perm[b], perm[a])
-	})
-	ni := make([]kicad.Item, len(m.items))
-	na := make([]*part.Part, len(m.assigned))
-	ne := make([]bool, len(m.excluded))
-	for n, o := range perm {
-		ni[n], na[n], ne[n] = m.items[o], m.assigned[o], m.excluded[o]
 	}
-	m.items, m.assigned, m.excluded = ni, na, ne
-	m.cursor, m.top = 0, 0
+	return -1
+}
+
+// reindex rebuilds the display order.
+//
+// This replaces permuting items/assigned/excluded in place: three parallel
+// slices reordered together were easy to desynchronise, and a permutation can't
+// express a filter, which removes rows rather than moving them.
+func (m Model) reindex() Model {
+	view := make([]int, 0, len(m.items))
+	for i := range m.items {
+		view = append(view, i)
+	}
+	// sortNone means the order kicad.BOM already put them in, by reference.
+	if m.sort != sortNone {
+		sort.SliceStable(view, func(a, b int) bool {
+			if m.sortAsc {
+				return m.itemLess(view[a], view[b])
+			}
+			return m.itemLess(view[b], view[a])
+		})
+	}
+	m.view = view
+	m.clampScroll()
 	return m
 }
 

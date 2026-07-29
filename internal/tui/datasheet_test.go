@@ -23,6 +23,7 @@ func TestDatasheetColumnAlignment(t *testing.T) {
 	}
 	m.excluded = []bool{false, false}
 	m.cursor = 0
+	m = m.reindex()
 
 	c := layoutCols(m.tableW())
 	lo, hi := c.dsRange()

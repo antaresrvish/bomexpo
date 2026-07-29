@@ -82,6 +82,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modeTable
 		m.cursor, m.top, m.hoff = 0, 0, 0
 		m.sort, m.sortAsc = sortNone, false
+		m = m.reindex()
 		m.err = ""
 		kind := "board"
 		if !m.fromBoard() {
