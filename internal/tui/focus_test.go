@@ -52,8 +52,8 @@ func TestTabLeavesEveryTextField(t *testing.T) {
 		},
 		{
 			name:    "check",
-			enter:   func(m Model) Model { mm, _ := m.updateCheck(key("tab")); return mm.(Model) },
-			focused: func(m Model) bool { return m.check.out.Focused() },
+			enter:   func(m Model) Model { mm, _ := m.updateCheck(key("e")); return mm.(Model) },
+			focused: func(m Model) bool { return m.check.pane == paneOut },
 			send:    func(m Model, k tea.KeyPressMsg) Model { mm, _ := m.updateCheck(k); return mm.(Model) },
 		},
 	}
@@ -67,9 +67,8 @@ func TestTabLeavesEveryTextField(t *testing.T) {
 			if tc.focused(m) {
 				t.Error("tab should have handed the keyboard back")
 			}
-			m = tc.send(m, key("tab"))
-			if !tc.focused(m) {
-				t.Error("tab should hand it forward again")
+			if m = tc.enter(m); !tc.focused(m) {
+				t.Error("the way in should work a second time")
 			}
 		})
 	}
@@ -311,5 +310,82 @@ func TestBottomBarFitsTheTerminal(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// The Check page's two halves both want the up and down arrows, so tab has to
+// pick which one gets them.
+func TestCheckPaneRing(t *testing.T) {
+	mm, _ := netModel(t).gotoTab(modeCheck)
+	m := mm.(Model)
+	m.w, m.h = 130, 32
+	m.boardv = m.boardv.zoomBy(zoomStep) // panning is a no-op at the fit-everything zoom
+	if m.check.pane != paneIssues {
+		t.Fatalf("landing on Check starts at pane %v, want the issues", m.check.pane)
+	}
+
+	// with the issues focused, down scrolls the list and leaves the board alone
+	m.check.top = 0
+	before := m.boardv
+	mm, _ = m.updateCheck(key("down"))
+	m = mm.(Model)
+	if m.check.top != 1 {
+		t.Errorf("down should scroll the issues, top = %d", m.check.top)
+	}
+	if m.boardv != before {
+		t.Error("down should not have panned the board")
+	}
+
+	// tab moves to the board, and now down pans instead of scrolling
+	mm, _ = m.updateCheck(key("tab"))
+	m = mm.(Model)
+	if m.check.pane != paneBoard {
+		t.Fatalf("tab went to pane %v, want the board", m.check.pane)
+	}
+	top, before := m.check.top, m.boardv
+	mm, _ = m.updateCheck(key("down"))
+	m = mm.(Model)
+	if m.boardv == before {
+		t.Error("down should pan the board once it has focus")
+	}
+	if m.check.top != top {
+		t.Error("down should no longer scroll the issues")
+	}
+
+	// round the ring to the path and back
+	mm, _ = m.updateCheck(key("tab"))
+	m = mm.(Model)
+	if m.check.pane != paneOut || !m.check.out.Focused() {
+		t.Fatalf("pane %v, focused %v — want the path, focused", m.check.pane, m.check.out.Focused())
+	}
+	mm, _ = m.updateCheck(key("tab"))
+	m = mm.(Model)
+	if m.check.pane != paneIssues || m.check.out.Focused() {
+		t.Errorf("the ring should close back on the issues, got %v", m.check.pane)
+	}
+	// and backwards
+	mm, _ = m.updateCheck(key("shift+tab"))
+	if got := mm.(Model).check.pane; got != paneOut {
+		t.Errorf("shift+tab from the issues gave %v, want the path", got)
+	}
+}
+
+// Whichever pane has the keys has to say so on screen.
+func TestCheckMarksTheFocusedPane(t *testing.T) {
+	mm, _ := netModel(t).gotoTab(modeCheck)
+	m := mm.(Model)
+	m.w, m.h = 130, 32
+
+	seen := map[checkPane]string{}
+	for _, p := range []checkPane{paneIssues, paneBoard, paneOut} {
+		m.check.setPane(p)
+		out := stripANSI(m.viewCheck(m.contentW(), m.contentH()))
+		if strings.Count(out, "▸") != 1 {
+			t.Errorf("pane %v: %d focus marks on screen, want exactly 1", p, strings.Count(out, "▸"))
+		}
+		seen[p] = out
+	}
+	if seen[paneIssues] == seen[paneBoard] {
+		t.Error("moving focus from the issues to the board changed nothing on screen")
 	}
 }

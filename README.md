@@ -62,7 +62,9 @@ drive the list, focused or not.
 
 Landing on a tab never takes the keyboard, so tab switching keeps working; press `/` or
 `tab` when you want to type. On the Load screen `↓` walks into the directory listing and
-`enter` opens what's highlighted.
+`enter` opens what's highlighted. On Check the issue list and the board both want the
+arrows, so `tab` walks the three panes — issues, board, output path — and `↑↓` goes to
+whichever has the keyboard.
 
 
 ## What it does

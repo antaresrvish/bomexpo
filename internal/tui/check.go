@@ -12,13 +12,41 @@ import (
 	"bomexpo/internal/value"
 )
 
+// checkPane is which of the page's three parts has the keyboard. The panes both
+// want the up and down arrows — the issue list scrolls, the board pans — so
+// something has to say which one gets them.
+type checkPane int
+
+const (
+	paneIssues checkPane = iota
+	paneBoard
+	paneOut
+)
+
 type checkState struct {
-	out textfield
-	top int
+	out  textfield
+	top  int
+	pane checkPane
 }
 
 func newCheckState() checkState {
 	return checkState{out: newField("› ", "output .zip path", 56)}
+}
+
+// setPane moves the keyboard, keeping the output field's own focus in step so
+// there's only one answer to "what has the keys".
+func (cs *checkState) setPane(p checkPane) {
+	cs.pane = p
+	if p == paneOut {
+		cs.out.Focus()
+		return
+	}
+	cs.out.Blur()
+}
+
+// cyclePane walks the ring: issues → board → output path → issues.
+func (cs *checkState) cyclePane(dir int) {
+	cs.setPane(checkPane((int(cs.pane) + dir + 3) % 3))
 }
 
 // setDefault seeds the output path from whatever file the design was opened
@@ -77,7 +105,7 @@ func (m Model) mouseCheck(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 	if click && ms.Button == tea.MouseLeft && len(issues) > 0 {
 		row := m.check.top + (ms.Y - checkDataTop)
 		if row >= 0 && row < len(issues) {
-			m.check.out.Blur()
+			m.check.setPane(paneIssues)
 			m.mode = modeTable
 			// issues carry line-item indices; the table cursor is a display row
 			if r := m.rowOf(issues[row].idx); r >= 0 {
@@ -90,22 +118,28 @@ func (m Model) mouseCheck(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 }
 
 func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	// While the path is being edited it owns the keyboard; the rest of the time
-	// the page does, so the board and the issue list are actually reachable.
-	if m.check.out.Focused() {
-		switch msg.String() {
-		case "esc", "tab", "shift+tab":
-			m.check.out.Blur()
+	key := msg.String()
+
+	// While the path is being edited it owns the keyboard.
+	if m.check.pane == paneOut {
+		switch key {
+		case "esc":
+			m.check.setPane(paneIssues)
+			return m, nil
+		case "tab":
+			m.check.cyclePane(1)
+			return m, nil
+		case "shift+tab":
+			m.check.cyclePane(-1)
 			return m, nil
 		case "enter":
-			m.check.out.Blur()
+			m.check.setPane(paneIssues)
 			return m.startExport()
 		}
 		m.check.out.Update(msg)
 		return m, nil
 	}
 
-	key := msg.String()
 	if mm, cmd, done := m.tabSwitchKey(key); done {
 		return mm, cmd
 	}
@@ -113,22 +147,41 @@ func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.mode = modeTable
 		return m, nil
-	case "tab", "shift+tab", "e", "/":
-		// tab is the focus key everywhere; e and / are shortcuts into the field
-		m.check.out.Focus()
+	case "tab":
+		m.check.cyclePane(1)
+		return m, nil
+	case "shift+tab":
+		m.check.cyclePane(-1)
+		return m, nil
+	case "e", "/":
+		m.check.setPane(paneOut) // straight to the path, skipping the ring
 		return m, nil
 	case "enter":
 		return m.startExport()
+
+	// Up and down belong to whichever pane has the keyboard — that's the whole
+	// reason this page has a focus ring.
 	case "up", "k":
+		if m.check.pane == paneBoard {
+			m.boardv = m.boardv.panBy(0, -1)
+			return m, nil
+		}
 		m.check.top = max(0, m.check.top-1)
 	case "down", "j":
+		if m.check.pane == paneBoard {
+			m.boardv = m.boardv.panBy(0, 1)
+			return m, nil
+		}
 		m.check.top++
+
 	case "t":
 		return m.openRender("top")
 	case "b":
 		return m.openRender("bottom")
 	case "i":
 		return m.openRender("iso")
+
+	// The issue list has no horizontal axis and no zoom, so these need no ring.
 	case "+", "=":
 		m.boardv = m.boardv.zoomBy(zoomStep)
 	case "-", "_":
@@ -224,9 +277,11 @@ func (m Model) viewCheck(w, h int) string {
 
 	lines := []string{summary, ""}
 	if len(issues) == 0 {
-		lines = append(lines, okStyle.Render("✓ every line item is assigned, in stock, and value-matched"))
+		lines = append(lines, focusMark(m.check.pane == paneIssues)+
+			okStyle.Render("✓ every line item is assigned, in stock, and value-matched"))
 	} else {
-		lines = append(lines, subtleStyle.Render("issues to review"))
+		lines = append(lines, focusMark(m.check.pane == paneIssues)+
+			subtleStyle.Render("issues to review"))
 		vis := h - 24
 		if vis < 1 {
 			vis = 1
@@ -331,11 +386,11 @@ func (m Model) viewCheck(w, h int) string {
 	// The numbers on the left, the board on the right at the full height it can
 	// get. The output field spans the bottom because it acts on both.
 	body := sideBySide(lines, m.boardPane(rightW, paneH), leftW, w, paneH)
-	label := focusMark(m.check.out.Focused()) + dimStyle.Render("Output  ")
-	hint := "tab edit · enter export · * = some parts unassigned"
-	if m.check.out.Focused() {
+	label := focusMark(m.check.pane == paneOut) + dimStyle.Render("Output  ")
+	hint := "tab cycles issues → board → path · enter export · * = some parts unassigned"
+	if m.check.pane == paneOut {
 		label = focusMark(true) + accentStyle.Render("Output  ")
-		hint = "enter export · tab hands the page back · esc done"
+		hint = "enter export · tab moves on · esc back to the issues"
 	}
 	body = append(body,
 		label+m.check.out.View(),
@@ -362,7 +417,10 @@ func sideBySide(left, right []string, leftW, w, h int) []string {
 // boardPane is the right-hand column of the Check page: the whole board, as big
 // as the page allows.
 func (m Model) boardPane(w, h int) []string {
-	head := m.boardHeader()
+	// Both text rows carry the mark's width so they stay aligned with each other;
+	// the drawing below keeps the full width, being a centred canvas.
+	mark := focusMark(m.check.pane == paneBoard)
+	head := mark + m.boardHeader()
 	if m.boardW > 0 {
 		head += dimStyle.Render(boardSize(m.boardW, m.boardH))
 	}
@@ -370,7 +428,7 @@ func (m Model) boardPane(w, h int) []string {
 		head += warnStyle.Render(fmt.Sprintf("  %.1f×", m.boardv.zoom))
 	}
 
-	out := []string{head, m.boardCaption()}
+	out := []string{head, focusMark(false) + m.boardCaption()}
 	drawH := h - len(out)
 	if drawH < 2 {
 		return out
@@ -378,12 +436,18 @@ func (m Model) boardPane(w, h int) []string {
 	return append(out, m.miniBoard(w, drawH)...)
 }
 
-// boardCaption says what's being drawn and how to move it.
+// boardCaption says what's being drawn and how to move it. With the board
+// focused the plain arrows pan it, otherwise they belong to the issue list and
+// only the horizontal ones reach here.
 func (m Model) boardCaption() string {
-	if n := len(m.placements); n > 0 {
-		return dimStyle.Render(fmt.Sprintf("%d placed · +- zoom · ←→ pan · 0 reset", n))
+	keys := "+- zoom · ←→ pan · 0 reset · tab to pan ↑↓"
+	if m.check.pane == paneBoard {
+		keys = "+- zoom · ←→↑↓ pan · 0 reset"
 	}
-	return dimStyle.Render("+- zoom · ←→ pan · 0 reset")
+	if n := len(m.placements); n > 0 {
+		return dimStyle.Render(fmt.Sprintf("%d placed · %s", n, keys))
+	}
+	return dimStyle.Render(keys)
 }
 
 func rotFamily(fp string) string {

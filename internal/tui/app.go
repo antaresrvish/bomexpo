@@ -258,7 +258,7 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	// do; every move after that goes through here.
 	m.load.field.Blur()
 	m.parts.field.Blur()
-	m.check.out.Blur()
+	m.check.setPane(paneIssues)
 
 	switch md {
 	case modeCheck:
@@ -558,12 +558,17 @@ func (m Model) helpLine(budget int) string {
 		}
 		hints = [][2]string{{"↑↓", "nets"}, {"enter", "filter by it"}, {"/", "narrow"}, {"esc", "back"}}
 	case modeCheck:
-		if m.check.out.Focused() {
-			hints = [][2]string{{"type", "output path"}, {"enter", "export"}, {"esc", "done"}}
-			break
+		switch m.check.pane {
+		case paneOut:
+			hints = [][2]string{{"type", "output path"}, {"enter", "export"}, {"tab", "issues"},
+				{"esc", "done"}}
+		case paneBoard:
+			hints = [][2]string{{"↑↓←→", "pan"}, {"+-", "zoom"}, {"0", "reset"}, {"t/b/i", "3D"},
+				{"tab", "output path"}, tabHint(true), {"esc", "back"}}
+		default:
+			hints = [][2]string{{"↑↓", "issues"}, {"tab", "board"}, {"+-", "zoom"}, {"t/b/i", "3D"},
+				{"enter", "export"}, tabHint(true), {"esc", "back"}}
 		}
-		hints = [][2]string{{"↑↓", "issues"}, {"+-", "zoom"}, {"←→", "pan"}, {"t/b/i", "3D"},
-			{"tab", "output path"}, {"enter", "export"}, tabHint(true), {"esc", "back"}}
 	}
 	var parts []string
 	width := 0
