@@ -202,7 +202,7 @@ func (m Model) nextSrc() Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spin.Tick, m.load.focusCmd())
+	return tea.Batch(m.spin.Tick, m.load.focusPath())
 }
 
 type projectLoadedMsg struct {

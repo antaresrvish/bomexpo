@@ -89,6 +89,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				exb++
 			}
 		}
+		m.load.field.Blur() // the path did its job; Components has the keys now
 		m.mode = modeTable
 		m.cursor, m.top, m.hoff = 0, 0, 0
 		m.sort, m.sortAsc = sortNone, false
@@ -251,21 +252,17 @@ func (m Model) routeMouse(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 }
 
 func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
+	// Arriving anywhere leaves the keys to the page: 1-5 and [ ] are printable, so
+	// a focused field would swallow them and tab switching would stop working.
+	// Init focuses the path field because on first launch there's nothing else to
+	// do; every move after that goes through here.
+	m.load.field.Blur()
+	m.parts.field.Blur()
+	m.check.out.Blur()
+
 	switch md {
 	case modeCheck:
 		m.check.setDefault(m.sourcePath())
-		m.check.out.Blur() // same rule: the page keeps the keys until you ask for the field
-		m.mode = md
-		return m, nil
-	case modeLoad:
-		m.mode = md
-		return m, m.load.focusCmd()
-	case modeParts:
-		// Arriving at a tab never takes the keyboard: 1-5 and [ ] are printable, so
-		// a focused query would swallow them. Press / or tab to start typing.
-		m.parts.field.Blur()
-		m.mode = md
-		return m, nil
 	case modeCompare:
 		if len(m.parts.pinned) < 2 {
 			m.flash = "pin at least two parts to compare"
@@ -513,11 +510,16 @@ func (m Model) helpLine(budget int) string {
 	var hints [][2]string
 	switch m.mode {
 	case modeLoad:
-		if m.load.cursor >= 0 {
-			hints = [][2]string{{"↑↓", "pick"}, {"enter", "open"}, {"tab", "back to the path"}}
-			break
+		switch {
+		case m.load.cursor >= 0:
+			hints = [][2]string{{"↑↓", "pick"}, {"enter", "open"}, {"tab", "type the path"}, tabHint(true)}
+		case m.load.field.Focused():
+			hints = [][2]string{{"↓", "browse"}, {"tab", "complete"}, {"enter", "open"},
+				tabHint(false), {"ctrl+c", "quit"}}
+		default:
+			hints = [][2]string{{"/", "type a path"}, {"↓", "browse"}, {"enter", "open"},
+				tabHint(true), {"ctrl+c", "quit"}}
 		}
-		hints = [][2]string{{"↓", "browse"}, {"tab", "complete"}, {"enter", "open"}, {"ctrl+c", "quit"}}
 	case modeTable:
 		if m.filter.open {
 			// the dropdown shows the keys, so the hint is about driving it

@@ -35,6 +35,16 @@ func TestTabLeavesEveryTextField(t *testing.T) {
 			send:    func(m Model, k tea.KeyPressMsg) Model { mm, _ := m.updateSearchKey(k); return mm.(Model) },
 		},
 		{
+			name: "load",
+			enter: func(m Model) Model {
+				mm, _ := m.gotoTab(modeLoad)
+				mm, _ = mm.(Model).updateLoad(key("/"))
+				return mm.(Model)
+			},
+			focused: func(m Model) bool { return m.load.field.Focused() },
+			send:    func(m Model, k tea.KeyPressMsg) Model { mm, _ := m.updateLoad(k); return mm.(Model) },
+		},
+		{
 			name:    "nets",
 			enter:   func(m Model) Model { mm, _ := m.openNetPicker(); return mm.(Model) },
 			focused: func(m Model) bool { return m.nets.field.Focused() },
@@ -94,13 +104,13 @@ func TestTabSwitchKeysDoNotStealFromAField(t *testing.T) {
 func TestArrivingAtATabLeavesTheListInCharge(t *testing.T) {
 	base := netModel(t)
 	base.parts.pinned = cmpFixture()
-	for _, md := range []mode{modeTable, modeParts, modeCheck, modeCompare} {
+	for _, md := range []mode{modeLoad, modeTable, modeParts, modeCheck, modeCompare} {
 		mm, _ := base.gotoTab(md)
 		m := mm.(Model)
 		if m.mode != md {
 			t.Fatalf("gotoTab(%v) landed on %v", md, m.mode)
 		}
-		if m.parts.field.Focused() || m.check.out.Focused() || m.filter.open {
+		if m.parts.field.Focused() || m.check.out.Focused() || m.filter.open || m.load.field.Focused() {
 			t.Errorf("%v took the keyboard on entry", md)
 		}
 		// so a digit gets straight through to tab switching
@@ -178,6 +188,53 @@ func TestLoadEnterOpensThePickedFile(t *testing.T) {
 	}
 	if got := m.load.field.Value(); got != want {
 		t.Errorf("loading %q, want %q", got, want)
+	}
+}
+
+// Load has three keyboard states, and each one has to hand off to the others
+// without a dead end.
+func TestLoadThreeFocusStates(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "board.kicad_pcb"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base := netModel(t)
+	base.w, base.h = 110, 32
+	mm, _ := base.gotoTab(modeLoad)
+	m := mm.(Model)
+	m.load.field.SetValue(dir + string(filepath.Separator))
+
+	// page focused: the field is quiet and the tab keys are live
+	if m.load.field.Focused() || m.load.cursor >= 0 {
+		t.Fatal("coming back to Load should leave the page in charge")
+	}
+	mm, _ = m.updateLoad(key("2"))
+	if mm.(Model).mode != modeTable {
+		t.Error("2 should switch tabs from the Load page")
+	}
+
+	// / types, tab picks the listing back up, and neither strands the keyboard
+	mm, _ = m.updateLoad(key("/"))
+	typing := mm.(Model)
+	if !typing.load.field.Focused() {
+		t.Fatal("/ should focus the path")
+	}
+	mm, _ = typing.updateLoad(key("2"))
+	if mm.(Model).mode != modeLoad || mm.(Model).load.field.Value() == typing.load.field.Value() {
+		t.Error("a digit typed into the path should be text, not a tab switch")
+	}
+	mm, _ = m.updateLoad(key("down"))
+	picked := mm.(Model)
+	if picked.load.cursor != 0 || picked.load.field.Focused() {
+		t.Fatalf("down should pick a row, cursor = %d", picked.load.cursor)
+	}
+	mm, _ = picked.updateLoad(key("2"))
+	if mm.(Model).mode != modeTable {
+		t.Error("2 should switch tabs with a row picked")
+	}
+	mm, _ = picked.updateLoad(key("tab"))
+	if !mm.(Model).load.field.Focused() {
+		t.Error("tab from the listing should type the path")
 	}
 }
 

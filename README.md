@@ -61,7 +61,8 @@ in-stock only, `/` back to typing), and `[` `]` or `1`–`5` switch tabs. Arrow 
 drive the list, focused or not.
 
 Landing on a tab never takes the keyboard, so tab switching keeps working; press `/` or
-`tab` when you want to type.
+`tab` when you want to type. On the Load screen `↓` walks into the directory listing and
+`enter` opens what's highlighted.
 
 
 ## What it does

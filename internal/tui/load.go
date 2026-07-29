@@ -19,10 +19,12 @@ const loadListing = 9
 // when focus moves between the path and the listing.
 const loadHintW = 70
 
+// loadState has three keyboard states, and field.Focused() plus cursor say which:
+// typing in the path, a listing row picked, or neither — in which case the page
+// has the keyboard and the tab keys work.
 type loadState struct {
 	field textfield
-	// cursor is the highlighted listing row, or -1 while the path field owns the
-	// keyboard.
+	// cursor is the highlighted listing row, or -1 when no row is picked.
 	cursor int
 }
 
@@ -33,7 +35,9 @@ func newLoadState(project string) loadState {
 	return loadState{field: f, cursor: -1}
 }
 
-func (ls *loadState) focusCmd() tea.Cmd {
+// focusPath puts the keyboard on the path field. On first launch there's nothing
+// else to do, so Init calls it; coming back to the tab later does not.
+func (ls *loadState) focusPath() tea.Cmd {
 	ls.field.Focus()
 	ls.cursor = -1
 	return nil
@@ -68,9 +72,10 @@ func (m Model) openLoadEntry(e fsEntry) (tea.Model, tea.Cmd) {
 
 func (m Model) updateLoad(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	entries := m.loadEntries()
-	browsing := m.load.cursor >= 0
+	key := msg.String()
+	typing := m.load.field.Focused()
 
-	switch msg.String() {
+	switch key {
 	case "down":
 		// down walks into the listing and then through it
 		if m.load.cursor+1 < len(entries) {
@@ -79,7 +84,7 @@ func (m Model) updateLoad(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "up":
-		if !browsing {
+		if m.load.cursor < 0 {
 			return m, nil
 		}
 		if m.load.cursor == 0 {
@@ -88,31 +93,54 @@ func (m Model) updateLoad(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.load.cursor--
 		return m, nil
 	case "enter":
-		if browsing && m.load.cursor < len(entries) {
+		if m.load.cursor >= 0 && m.load.cursor < len(entries) {
 			return m.openLoadEntry(entries[m.load.cursor])
 		}
 		return m.startLoad()
-	case "tab":
-		if browsing {
-			return m.focusLoadField()
+	case "tab", "shift+tab":
+		if typing {
+			// tab completes the path, and hands the page back when there's nothing
+			// left to complete — the same deal as the filter query
+			if next, ok := completePath(m.load.field.Value()); ok {
+				m.load.field.SetValue(next)
+				return m, nil
+			}
+			m.load.field.Blur()
+			return m, nil
 		}
-		if next, ok := completePath(m.load.field.Value()); ok {
-			m.load.field.SetValue(next)
-		}
-		return m, nil
+		return m.focusLoadField()
 	case "esc":
-		if browsing {
-			return m.focusLoadField()
+		if typing {
+			m.load.field.Blur()
+			return m, nil
+		}
+		m.load.cursor = -1
+		return m, nil
+	}
+
+	if typing {
+		before := m.load.field.Value()
+		m.load.field.Update(msg)
+		if m.load.field.Value() != before {
+			m.load.cursor = -1 // a new path means a new listing
 		}
 		return m, nil
 	}
-	if browsing {
-		return m, nil // letters aren't commands here, so they just don't apply
+
+	// The path isn't focused, so the keys are commands — including tab switching,
+	// which is the whole reason arriving here doesn't grab the keyboard.
+	if mm, cmd, done := m.tabSwitchKey(key); done {
+		return mm, cmd
 	}
-	before := m.load.field.Value()
-	m.load.field.Update(msg)
-	if m.load.field.Value() != before {
-		m.load.cursor = -1 // a new path means a new listing
+	switch key {
+	case "/", "i":
+		return m.focusLoadField()
+	case "g", "home":
+		if len(entries) > 0 {
+			m.load.cursor = 0
+		}
+	case "G", "end":
+		m.load.cursor = len(entries) - 1
 	}
 	return m, nil
 }
@@ -140,11 +168,16 @@ func (m Model) viewLoad(width, height int) string {
 		subtleStyle.Render("KiCad Fabrication tool"),
 		dimStyle.Render("▪ folder   ◆ board   ▤ bom csv"),
 	)
-	// Both hints are padded to the same width: the block is centre-placed, so a
+	// Every hint is padded to the same width: the block is centre-placed, so a
 	// shorter line would slide the whole page sideways when focus moves.
-	hint := "↓ browse · tab complete · enter open · ^a select all · ^w delete word"
-	if m.load.cursor >= 0 {
-		hint = "↑↓ pick · enter open · tab back to the path · esc clears the pick"
+	var hint string
+	switch {
+	case m.load.cursor >= 0:
+		hint = "↑↓ pick · enter open · tab types the path · esc clears the pick"
+	case m.load.field.Focused():
+		hint = "↓ browse · tab complete · enter open · ^a select all · ^w delete word"
+	default:
+		hint = "/ type a path · ↓ browse · enter open · 1-4 or [ ] switch tabs"
 	}
 	form := lipgloss.JoinVertical(lipgloss.Left,
 		labelStyle.Render("Project  ")+focusMark(m.load.field.Focused())+m.load.field.View(),
