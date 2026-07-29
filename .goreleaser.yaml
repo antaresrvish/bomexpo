@@ -71,3 +71,7 @@ aurs:
       - bomexpo
     package: |-
       install -Dm755 "./bomexpo" "${pkgdir}/usr/bin/bomexpo"
+      # MIT carries a per-project copyright line, so it isn't one of the licenses
+      # in /usr/share/licenses/common and Arch requires the package to ship its
+      # own copy. goreleaser puts LICENSE in the archive by default.
+      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
