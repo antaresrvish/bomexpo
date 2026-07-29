@@ -34,7 +34,7 @@ type Result struct {
 type Caps struct {
 	BasicFilter bool // honours Query.BasicOnly
 	Library     bool // populates Part.Lib
-	AsmStock    bool // populates Part.AsmStock, AsmMin and Loss
+	Assembly    bool // populates Part.AsmMin and Part.Loss
 }
 
 // Provider is a searchable parts source. Implementations must be safe for

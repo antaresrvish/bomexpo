@@ -65,10 +65,19 @@ type Part struct {
 	Params    []Param
 
 	// Assembly-specific, only from sources that quote assembly (see Caps).
-	Lib      LibKind
-	AsmStock int // units the assembler holds, distinct from shop Stock
-	AsmMin   int // minimum units consumed per assembly job
-	Loss     int // units the assembler adds for attrition
+	Lib    LibKind
+	AsmMin int // minimum units consumed per assembly job
+	Loss   int // units the assembler adds for attrition
+}
+
+// AsmUnits is how many units an assembly job actually consumes for need units
+// of this part, once the assembler's minimum and attrition are applied.
+func (p Part) AsmUnits(need int) int {
+	n := need + p.Loss
+	if p.AsmMin > n {
+		n = p.AsmMin
+	}
+	return n
 }
 
 // primaryParam holds the params already shown as the value column, so Specs
