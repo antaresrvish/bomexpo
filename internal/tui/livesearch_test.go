@@ -6,6 +6,7 @@ import (
 
 	"bomexpo/internal/kicad"
 	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
 	"bomexpo/internal/value"
 )
 
@@ -18,7 +19,7 @@ func TestLiveResistorSearch(t *testing.T) {
 	if kw != "4.7kΩ" {
 		t.Fatalf("keyword = %q, want 4.7kΩ", kw)
 	}
-	res, err := lcsc.New().Search(kw, 1, 100)
+	res, err := lcsc.New().Provider().Search(part.Query{Keyword: kw, Size: 100})
 	if err != nil {
 		t.Fatal(err)
 	}

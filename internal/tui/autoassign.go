@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"bomexpo/internal/kicad"
-	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
 	"bomexpo/internal/value"
 )
 
@@ -67,19 +67,19 @@ func unstableDiel(d string) bool {
 // voltage/tolerance/dielectric spelled out in the value; unstable ceramics are
 // dropped unless asked for. Candidates rank by enough-stock, price, dielectric
 // quality, then stock.
-func pickBest(it kicad.Item, kind value.Kind, pkg string, results []lcsc.Part) (lcsc.Part, bool) {
+func pickBest(it kicad.Item, kind value.Kind, pkg string, results []part.Part) (part.Part, bool) {
 	// A passive whose footprint has no chip size code (electrolytic, tantalum,
 	// molded inductor, special cans) can't have its physical package matched
 	// reliably — don't guess, leave it for manual selection.
 	if kind != value.Unknown && pkg == "" {
-		return lcsc.Part{}, false
+		return part.Part{}, false
 	}
 
 	target, hasTarget := value.ExtractValue(it.Value)
 	want := parseSpecs(it.Value)
 	isCap := kind == value.Capacitance
 
-	var cands []lcsc.Part
+	var cands []part.Part
 	for _, p := range results {
 		if p.Stock <= 0 {
 			continue
@@ -117,7 +117,7 @@ func pickBest(it kicad.Item, kind value.Kind, pkg string, results []lcsc.Part) (
 		cands = append(cands, p)
 	}
 	if len(cands) == 0 {
-		return lcsc.Part{}, false
+		return part.Part{}, false
 	}
 
 	need := it.Quantity
@@ -139,12 +139,12 @@ func pickBest(it kicad.Item, kind value.Kind, pkg string, results []lcsc.Part) (
 	return cands[0], true
 }
 
-func matchesMPN(val string, p lcsc.Part) bool {
+func matchesMPN(val string, p part.Part) bool {
 	needle := normMPN(val)
 	if needle == "" {
 		return false
 	}
-	return strings.Contains(normMPN(p.Model), needle) ||
+	return strings.Contains(normMPN(p.MPN), needle) ||
 		strings.Contains(normMPN(p.Description()), needle)
 }
 

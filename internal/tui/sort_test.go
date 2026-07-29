@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"bomexpo/internal/kicad"
-	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
 )
 
 func TestSortedKeepsArraysAligned(t *testing.T) {
@@ -14,7 +14,7 @@ func TestSortedKeepsArraysAligned(t *testing.T) {
 			{Value: "1uF", Footprint: "C_0402", Bases: []string{"C1"}, Quantity: 1},
 			{Value: "100nF", Footprint: "C_0402", Bases: []string{"C2"}, Quantity: 5},
 		},
-		assigned: []*lcsc.Part{{Code: "A"}, {Code: "B"}, {Code: "C"}},
+		assigned: []*part.Part{{Code: "A"}, {Code: "B"}, {Code: "C"}},
 		excluded: []bool{false, true, false},
 	}
 

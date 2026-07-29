@@ -7,19 +7,19 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"bomexpo/internal/kicad"
-	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
 )
 
 func TestDatasheetColumnAlignment(t *testing.T) {
-	m := New("")
+	m := New("", "")
 	m.w, m.h = 140, 40
 	m.items = []kicad.Item{
 		{Bases: []string{"C1"}, Value: "100nF", Footprint: "C_0402_1005Metric", Quantity: 1, LCSC: "C1525"},
 		{Bases: []string{"C2"}, Value: "1uF", Footprint: "C_0402_1005Metric", Quantity: 1, LCSC: "C2"},
 	}
-	m.assigned = []*lcsc.Part{
-		{Code: "C1525", Datasheet: "https://x/y.pdf", IntroEn: "100nF X7R"},
-		{Code: "C2", Datasheet: "https://x/z.pdf", IntroEn: "1uF X5R"},
+	m.assigned = []*part.Part{
+		{Code: "C1525", Datasheet: "https://x/y.pdf", Desc: "100nF X7R"},
+		{Code: "C2", Datasheet: "https://x/z.pdf", Desc: "1uF X5R"},
 	}
 	m.excluded = []bool{false, false}
 	m.cursor = 0

@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadTyping(t *testing.T) {
-	m := New("")
+	m := New("", "")
 	if !m.load.field.Focused() {
 		t.Fatal("load field is not focused after New")
 	}

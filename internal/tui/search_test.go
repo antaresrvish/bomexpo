@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
 	"bomexpo/internal/value"
 )
 
@@ -11,11 +11,11 @@ func TestSearchTypeFilter(t *testing.T) {
 	s := searchState{
 		kind:     value.Resistance,
 		typeOnly: true,
-		results: []lcsc.Part{
-			{Code: "C1", IntroEn: "4.7kΩ ±1% 100mW 0402 Chip Resistor"},
-			{Code: "C2", IntroEn: "1uF ±10% 16V 0402 Ceramic Capacitor"},
-			{Code: "C3", IntroEn: "4.7uF ±10% 6.3V Ceramic Capacitor X5R 0402"},
-			{Code: "C4", IntroEn: "10kΩ ±1% 0402 Thick Film Resistor"},
+		results: []part.Part{
+			{Code: "C1", Desc: "4.7kΩ ±1% 100mW 0402 Chip Resistor"},
+			{Code: "C2", Desc: "1uF ±10% 16V 0402 Ceramic Capacitor"},
+			{Code: "C3", Desc: "4.7uF ±10% 6.3V Ceramic Capacitor X5R 0402"},
+			{Code: "C4", Desc: "10kΩ ±1% 0402 Thick Film Resistor"},
 		},
 	}
 	f := s.filtered()
@@ -37,10 +37,10 @@ func TestSearchTypeFilter(t *testing.T) {
 	cap := searchState{
 		kind:     value.Capacitance,
 		typeOnly: true,
-		results: []lcsc.Part{
-			{Code: "C1591", IntroEn: "100nF ±10% 50V Ceramic Capacitor X7R 0603"},
-			{Code: "C60491", IntroEn: "100kΩ 62.5mW 50V Thick Film Resistor ±1% 0402"},
-			{Code: "C60490", IntroEn: "10kΩ 62.5mW 50V Thick Film Resistor ±1% 0402"},
+		results: []part.Part{
+			{Code: "C1591", Desc: "100nF ±10% 50V Ceramic Capacitor X7R 0603"},
+			{Code: "C60491", Desc: "100kΩ 62.5mW 50V Thick Film Resistor ±1% 0402"},
+			{Code: "C60490", Desc: "10kΩ 62.5mW 50V Thick Film Resistor ±1% 0402"},
 		},
 	}
 	f = cap.filtered()

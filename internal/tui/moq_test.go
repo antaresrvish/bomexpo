@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"bomexpo/internal/kicad"
-	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
 )
 
 func TestCostAtRespectsMOQ(t *testing.T) {
@@ -15,9 +15,9 @@ func TestCostAtRespectsMOQ(t *testing.T) {
 			{Bases: []string{"C1"}, Value: "1uF", Quantity: 200}, // need 200, MOQ 50 → buy 200
 		},
 		excluded: []bool{false, false},
-		assigned: []*lcsc.Part{
-			{MinBuy: 100, Prices: []lcsc.Price{{Ladder: 1, USD: 0.01}}},
-			{MinBuy: 50, Prices: []lcsc.Price{{Ladder: 1, USD: 0.02}}},
+		assigned: []*part.Part{
+			{MinBuy: 100, Prices: []part.Price{{Ladder: 1, USD: 0.01}}},
+			{MinBuy: 50, Prices: []part.Price{{Ladder: 1, USD: 0.02}}},
 		},
 	}
 	// 100*0.01 + 200*0.02 = 1.00 + 4.00

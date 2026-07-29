@@ -4,16 +4,16 @@ import (
 	"testing"
 
 	"bomexpo/internal/kicad"
-	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
 )
 
 func TestExclude(t *testing.T) {
-	m := New("")
+	m := New("", "")
 	m.items = []kicad.Item{
 		{Bases: []string{"H1"}, Value: "MountingHole"},
 		{Bases: []string{"R1"}, Value: "10k", LCSC: "C1"},
 	}
-	m.assigned = make([]*lcsc.Part, 2)
+	m.assigned = make([]*part.Part, 2)
 	m.excluded = make([]bool, 2)
 
 	if _, wn := m.counts(); wn != 1 {

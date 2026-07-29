@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
 )
 
 func TestFullFlow(t *testing.T) {
@@ -19,7 +20,7 @@ func TestFullFlow(t *testing.T) {
 		t.Skip("set BOMEXPO_PROJ")
 	}
 
-	m := New(proj)
+	m := New(proj, "")
 	m = step(m, tea.WindowSizeMsg{Width: 130, Height: 44})
 	m = step(m, loadProjectCmd(proj)())
 
@@ -36,7 +37,7 @@ func TestFullFlow(t *testing.T) {
 	}
 
 	kw := searchKeyword(m.items[0])
-	res, err := lcsc.New().Search(kw, 1, 30)
+	res, err := lcsc.New().Provider().Search(part.Query{Keyword: kw, Size: 30})
 	if err != nil {
 		t.Fatalf("live search %q: %v", kw, err)
 	}
@@ -51,7 +52,7 @@ func TestFullFlow(t *testing.T) {
 	if m.items[0].LCSC == "" || m.assigned[0] == nil {
 		t.Fatal("assignment failed")
 	}
-	t.Logf("assigned %s -> %s (%s)", m.items[0].ID(), m.items[0].LCSC, m.assigned[0].Model)
+	t.Logf("assigned %s -> %s (%s)", m.items[0].ID(), m.items[0].LCSC, m.assigned[0].MPN)
 	mustRender(t, m, "table-after-assign")
 
 	m.mode = modeCheck

@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
 )
 
 func (m Model) contentW() int {
@@ -56,7 +56,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.board = msg.board
 		m.layers = msg.layers
 		m.boardW, m.boardH = msg.boardW, msg.boardH
-		m.assigned = make([]*lcsc.Part, len(m.items))
+		m.assigned = make([]*part.Part, len(m.items))
 		m.excluded = make([]bool, len(m.items))
 		dnp, exb := 0, 0
 		for i := range m.items {

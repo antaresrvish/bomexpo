@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"bomexpo/internal/kicad"
-	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
 	"bomexpo/internal/value"
 )
 
-func cap0402(code, desc string, stock int, usd float64) lcsc.Part {
-	return lcsc.Part{Code: code, Package: "0402", IntroEn: desc, Stock: stock,
-		Prices: []lcsc.Price{{USD: usd}}}
+func cap0402(code, desc string, stock int, usd float64) part.Part {
+	return part.Part{Code: code, Package: "0402", Desc: desc, Stock: stock,
+		Prices: []part.Price{{USD: usd}}}
 }
 
 func TestSpecValueHandling(t *testing.T) {
@@ -29,7 +29,7 @@ func TestSpecValueHandling(t *testing.T) {
 		t.Errorf("4.7uF 50V vs 100nF part should NOT match: %+v", r)
 	}
 	// pickBest must reject 100nF for a 4.7uF 50V line
-	res := []lcsc.Part{
+	res := []part.Part{
 		cap0402("wrong", "100nF ±10% 50V Ceramic Capacitor X7R 0402", 9999, 0.001),
 		cap0402("low", "4.7uF ±20% 16V Ceramic Capacitor X5R 0402", 9999, 0.002), // underrated
 		cap0402("right", "4.7uF ±10% 50V Ceramic Capacitor X5R 0402", 9999, 0.02),
@@ -42,11 +42,11 @@ func TestSpecValueHandling(t *testing.T) {
 
 func TestPickBestParametric(t *testing.T) {
 	it := kicad.Item{Value: "100nF 50V X7R", Footprint: "C_0402_1005Metric", Quantity: 10}
-	res := []lcsc.Part{
+	res := []part.Part{
 		cap0402("A", "100nF ±10% 16V Ceramic Capacitor X7R 0402", 9999, 0.001),  // underrated voltage
 		cap0402("B", "100nF ±10% 50V Ceramic Capacitor Y5V 0402", 9999, 0.0005), // wrong dielectric
 		cap0402("C", "100nF ±10% 50V Ceramic Capacitor X7R 0402", 9999, 0.005),  // correct
-		{Code: "D", Package: "0603", IntroEn: "100nF ±10% 50V Ceramic Capacitor X7R 0603", Stock: 9999, Prices: []lcsc.Price{{USD: 0.0001}}},
+		{Code: "D", Package: "0603", Desc: "100nF ±10% 50V Ceramic Capacitor X7R 0603", Stock: 9999, Prices: []part.Price{{USD: 0.0001}}},
 	}
 	p, ok := pickBest(it, value.Capacitance, "0402", res)
 	if !ok || p.Code != "C" {
@@ -56,7 +56,7 @@ func TestPickBestParametric(t *testing.T) {
 
 func TestPickBestExcludesUnstableAndOOS(t *testing.T) {
 	it := kicad.Item{Value: "100nF", Footprint: "C_0402_1005Metric", Quantity: 1}
-	res := []lcsc.Part{
+	res := []part.Part{
 		cap0402("Y", "100nF ±20% 25V Ceramic Capacitor Y5V 0402", 9999, 0.0005), // unstable, excluded by default
 		cap0402("Z", "100nF ±10% 25V Ceramic Capacitor X7R 0402", 0, 0.001),     // out of stock
 		cap0402("X", "100nF ±10% 25V Ceramic Capacitor X7R 0402", 5000, 0.003),  // the pick
@@ -67,7 +67,7 @@ func TestPickBestExcludesUnstableAndOOS(t *testing.T) {
 	}
 
 	// nothing in stock -> no pick (out-of-stock lines stay as-is)
-	if _, ok := pickBest(it, value.Capacitance, "0402", []lcsc.Part{cap0402("Z", "100nF X7R 0402", 0, 0.001)}); ok {
+	if _, ok := pickBest(it, value.Capacitance, "0402", []part.Part{cap0402("Z", "100nF X7R 0402", 0, 0.001)}); ok {
 		t.Fatal("should not pick an out-of-stock part")
 	}
 }
@@ -81,7 +81,7 @@ func TestLiveAutoAssign(t *testing.T) {
 		{Bases: []string{"C1"}, Value: "100nF", Footprint: "C_0402_1005Metric", Quantity: 10},
 		{Bases: []string{"C2"}, Value: "10uF", Footprint: "C_0805_2012Metric", Quantity: 2},
 	}
-	m := New("")
+	m := New("", "")
 	m.items = lines
 
 	for i, it := range lines {

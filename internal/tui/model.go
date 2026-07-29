@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -8,9 +9,11 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
+	"bomexpo/internal/config"
 	"bomexpo/internal/export"
 	"bomexpo/internal/kicad"
-	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
+	"bomexpo/internal/source"
 	"bomexpo/internal/value"
 )
 
@@ -41,7 +44,8 @@ const (
 )
 
 type Model struct {
-	client *lcsc.Client
+	srcs   []part.Provider
+	srcIdx int
 	mode   mode
 	w, h   int
 	err    string
@@ -61,7 +65,7 @@ type Model struct {
 	items      []kicad.Item
 	placements []kicad.Placement
 	board      *kicad.Board
-	assigned   []*lcsc.Part
+	assigned   []*part.Part
 	excluded   []bool
 	layers     int
 	boardW     float64
@@ -96,13 +100,48 @@ const (
 	sortRot
 )
 
-func New(project string) Model {
+// New builds the initial model. srcWant names the parts source to open with and
+// may be empty, in which case the configured default is used.
+func New(project, srcWant string) Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
-	m := Model{client: lcsc.New(), mode: modeLoad, spin: sp}
+
+	srcs := source.New()
+	idx, unknown := source.Start(srcs, config.Load(), srcWant)
+
+	m := Model{srcs: srcs, srcIdx: idx, mode: modeLoad, spin: sp}
+	if unknown != "" {
+		m.err = fmt.Sprintf("unknown source %q — using %s (have: %s)",
+			unknown, srcs[idx].ID(), strings.Join(source.IDs(srcs), ", "))
+	}
 	m.load = newLoadState(project)
 	m.search = newSearchState()
 	m.check = newCheckState()
+	return m
+}
+
+// src is the parts source in use. It is nil only for a hand-built Model in a
+// test, so every command that needs it checks.
+func (m Model) src() part.Provider {
+	if m.srcIdx < 0 || m.srcIdx >= len(m.srcs) {
+		return nil
+	}
+	return m.srcs[m.srcIdx]
+}
+
+// srcID names the active source, for status text and cache keys.
+func (m Model) srcID() string {
+	if s := m.src(); s != nil {
+		return s.ID()
+	}
+	return ""
+}
+
+// nextSrc moves to the following source, wrapping around.
+func (m Model) nextSrc() Model {
+	if len(m.srcs) > 1 {
+		m.srcIdx = (m.srcIdx + 1) % len(m.srcs)
+	}
 	return m
 }
 
@@ -124,13 +163,13 @@ type projectLoadedMsg struct {
 
 type searchDoneMsg struct {
 	token int
-	res   lcsc.SearchResult
+	res   part.Result
 	err   error
 }
 
 type detailDoneMsg struct {
 	idx  int
-	part lcsc.Part
+	part part.Part
 	err  error
 }
 
@@ -141,19 +180,27 @@ type exportDoneMsg struct {
 
 type autoAssignedMsg struct {
 	idx  int
-	part lcsc.Part
+	part part.Part
 	ok   bool
 	err  error
 }
+
+// errNoSource can only happen for a Model built by hand in a test; the real one
+// always has a source. Commands report it instead of returning a nil Cmd so
+// in-flight counters still settle.
+var errNoSource = errors.New("no parts source configured")
 
 func (m Model) autoAssignCmd(idx int) tea.Cmd {
 	it := m.items[idx]
 	kw := searchKeyword(it)
 	kind := deriveKind(it.Value, refPrefix(it.ID()))
 	pkg := sizeCode.FindString(it.Footprint)
-	client := m.client
+	src := m.src()
 	return func() tea.Msg {
-		res, err := client.Search(kw, 1, 100)
+		if src == nil {
+			return autoAssignedMsg{idx: idx, err: errNoSource}
+		}
+		res, err := src.Search(part.Query{Keyword: kw, Size: 100})
 		if err != nil {
 			return autoAssignedMsg{idx: idx, err: err}
 		}
@@ -177,24 +224,31 @@ func loadProjectCmd(path string) tea.Cmd {
 }
 
 func (m Model) searchCmd(token int, keyword string) tea.Cmd {
-	client := m.client
+	src := m.src()
+	basicOnly := m.search.basicOnly
 	return func() tea.Msg {
-		res, err := client.Search(keyword, 1, 100)
+		if src == nil {
+			return searchDoneMsg{token: token, err: errNoSource}
+		}
+		res, err := src.Search(part.Query{Keyword: keyword, Size: 100, BasicOnly: basicOnly})
 		return searchDoneMsg{token: token, res: res, err: err}
 	}
 }
 
 func (m Model) detailCmd(idx int, code string) tea.Cmd {
-	client := m.client
+	src := m.src()
 	return func() tea.Msg {
-		p, err := client.Detail(code)
+		if src == nil {
+			return detailDoneMsg{idx: idx, err: errNoSource}
+		}
+		p, err := src.Detail(code)
 		return detailDoneMsg{idx: idx, part: p, err: err}
 	}
 }
 
 type refreshDoneMsg struct {
 	idx  int
-	part lcsc.Part
+	part part.Part
 	err  error
 }
 
@@ -220,9 +274,12 @@ func (m Model) refreshCmd() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) refreshOne(idx int, code string) tea.Cmd {
-	client := m.client
+	src := m.src()
 	return func() tea.Msg {
-		p, err := client.Refresh(code)
+		if src == nil {
+			return refreshDoneMsg{idx: idx, err: errNoSource}
+		}
+		p, err := src.Refresh(code)
 		return refreshDoneMsg{idx: idx, part: p, err: err}
 	}
 }
@@ -376,7 +433,7 @@ func (m Model) sorted() Model {
 		return m.itemLess(perm[b], perm[a])
 	})
 	ni := make([]kicad.Item, len(m.items))
-	na := make([]*lcsc.Part, len(m.assigned))
+	na := make([]*part.Part, len(m.assigned))
 	ne := make([]bool, len(m.excluded))
 	for n, o := range perm {
 		ni[n], na[n], ne[n] = m.items[o], m.assigned[o], m.excluded[o]

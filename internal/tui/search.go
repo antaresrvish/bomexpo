@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"bomexpo/internal/lcsc"
+	"bomexpo/internal/part"
 	"bomexpo/internal/value"
 )
 
@@ -33,7 +33,7 @@ type searchDebounceMsg struct{ seq int }
 
 type searchState struct {
 	field       textfield
-	results     []lcsc.Part
+	results     []part.Part
 	cursor      int
 	top         int
 	token       int
@@ -42,13 +42,16 @@ type searchState struct {
 	inStockOnly bool
 	pkgOnly     bool
 	typeOnly    bool
-	pkg         string
-	kind        value.Kind
-	total       int
+	// basicOnly asks the source for its basic library only. Unlike the other
+	// filters this one is applied server-side, so toggling it re-searches.
+	basicOnly bool
+	pkg       string
+	kind      value.Kind
+	total     int
 }
 
 func newSearchState() searchState {
-	return searchState{field: newField("› ", "search LCSC…", 46)}
+	return searchState{field: newField("› ", "search parts…", 46)}
 }
 
 func (s *searchState) begin(keyword, footprint, val, prefix string) {
@@ -78,8 +81,8 @@ func deriveKind(val, prefix string) value.Kind {
 	return value.Unknown
 }
 
-func (s searchState) filtered() []lcsc.Part {
-	var out []lcsc.Part
+func (s searchState) filtered() []part.Part {
+	var out []part.Part
 	for _, p := range s.results {
 		if s.inStockOnly && !p.InStock() {
 			continue
@@ -228,7 +231,7 @@ func (m Model) assignSelected() (tea.Model, tea.Cmd) {
 	if m.cursor >= 0 && m.cursor < len(m.items) {
 		m.items[m.cursor].LCSC = p.Code
 		m.assigned[m.cursor] = &p
-		m.status = fmt.Sprintf("%s ← %s  %s", m.items[m.cursor].ID(), p.Code, p.Model)
+		m.status = fmt.Sprintf("%s ← %s  %s", m.items[m.cursor].ID(), p.Code, p.MPN)
 	}
 	m.search.field.Blur()
 	m.mode = modeTable
@@ -284,7 +287,7 @@ func (m Model) viewSearch(w, h int) string {
 		}
 		plain := []string{
 			pad(p.Code, code), pad(p.Package, pkg), pad(groupThousands(p.Stock), stock),
-			pad(p.PriceLabel(), price), pad(dsc, ds), pad(trunc(p.Model, mpn), mpn), pad(p.Description(), desc),
+			pad(p.PriceLabel(), price), pad(dsc, ds), pad(trunc(p.MPN, mpn), mpn), pad(p.Description(), desc),
 		}
 		if i == s.cursor {
 			lines = append(lines, selRowStyle.Render(padRender("▶ "+strings.Join(plain, "   "), w)))
