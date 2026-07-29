@@ -34,14 +34,12 @@ func (c *Client) Search(keyword string, page, size int) (SearchResult, error) {
 	return SearchResult{Items: r.DataList, Total: r.TotalRow, Page: page, PageSize: size}, nil
 }
 
-// Detail returns a part, served from the on-disk cache when a fresh copy
-// exists and falling back to a stale copy if the network is unavailable.
+// Detail serves the on-disk cache when fresh, a stale copy when offline.
 func (c *Client) Detail(code string) (Part, error) {
 	return c.detail(code, false)
 }
 
-// Refresh re-fetches a part from LCSC, bypassing the cache, and stores the
-// fresh stock and pricing back into it.
+// Refresh bypasses the cache and stores what it gets back into it.
 func (c *Client) Refresh(code string) (Part, error) {
 	return c.detail(code, true)
 }

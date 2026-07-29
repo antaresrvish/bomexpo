@@ -10,10 +10,8 @@ import (
 	"bomexpo/internal/part"
 )
 
-// The filter is only useful if you can see what there is to filter on — nobody
-// remembers their own net names. So the query field completes itself: type
-// nothing and it offers the keys, type "net:" and it offers the board's actual
-// nets with how many line items each would show.
+// Nobody remembers their own net names, so the query completes itself: the keys
+// when empty, and after "net:" the board's actual nets with their line counts.
 
 const (
 	sugMax   = 8 // rows in the dropdown

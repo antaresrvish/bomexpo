@@ -34,10 +34,9 @@ func (b boardState) zoomBy(f float64) boardState {
 	return b
 }
 
-// panBy moves the view, not the board: dx=1 means "show me what's to the right",
-// so it walks the board the other way. The renderer adds panX to every drawn
-// point, hence the sign flip here — the one place it belongs, so callers can just
-// say which way the arrow pointed.
+// panBy moves the view, not the board: dx=1 shows what's to the right. The
+// renderer adds panX to every point it draws, hence the sign flip — kept here so
+// callers only say which way the arrow pointed.
 func (b boardState) panBy(dx, dy float64) boardState {
 	if b.zoom <= zoomMin {
 		return b // nothing to pan when the whole board already fits

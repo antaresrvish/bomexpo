@@ -7,13 +7,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// overlay draws box on top of bg at (x, y), leaving whatever the box doesn't
-// cover still showing. That's what makes a popup read as floating over the page
-// rather than replacing it.
-//
-// The slicing goes through ansi.Cut so a styled background line keeps its colours
-// on both sides of the hole, and every line comes back exactly w columns wide —
-// one column of overflow would push the panel border out.
+// overlay draws box over bg at (x, y), leaving the rest showing. Slicing goes
+// through ansi.Cut so the background keeps its colours either side of the hole.
 func overlay(bg []string, box []string, x, y, w int) []string {
 	if len(box) == 0 {
 		return bg
@@ -45,17 +40,15 @@ func overlay(bg []string, box []string, x, y, w int) []string {
 		left := ansi.Cut(under, 0, x)
 		right := ""
 		if x+boxW < w {
-			// the reset stops the box's colour bleeding into what follows
-			right = "\x1b[0m" + ansi.Cut(under, x+boxW, w)
+			right = "\x1b[0m" + ansi.Cut(under, x+boxW, w) // reset, or the box bleeds
 		}
 		out[row] = left + padRender(truncANSI(ln, boxW), boxW) + right
 	}
 	return out
 }
 
-// popupFrame wraps content in a titled box sized to (w, h), padded a column in
-// from the border, with a dim shadow down its right side and along the bottom so
-// it lifts off the page behind it.
+// popupFrame wraps content in a titled box with a shadow down its right side and
+// along the bottom.
 func popupFrame(title string, content []string, w, h int) []string {
 	const shadow = 1
 	bw, bh := w-shadow, h-shadow
@@ -79,16 +72,12 @@ func popupFrame(title string, content []string, w, h int) []string {
 	}
 	out = append(out, borderStyle.Render("╰"+strings.Repeat("─", bw-2)+"╯"))
 
-	// The shadow is a column on the right of every row but the first, and a row
-	// under the box offset by one, which is how a dropped shadow falls.
 	for i := 1; i < len(out); i++ {
 		out[i] += dimStyle.Render("░")
 	}
 	return append(out, spaces(1)+dimStyle.Render(strings.Repeat("░", bw-1)))
 }
 
-// popupW is how wide a popup gets: most of the page, but never so wide that the
-// table behind it is a row of one-character slivers.
 func popupW(w int) int {
 	pw := w - 8
 	if pw > 108 {
@@ -97,9 +86,7 @@ func popupW(w int) int {
 	return max(min(pw, w), 8)
 }
 
-// popupBox is where a popup sits: centred across, a little above centre so it
-// doesn't crowd the status line, and only as tall as want rows need — a popup
-// padded out with blank rows looks broken rather than roomy.
+// popupBox centres a popup, only as tall as want rows need.
 func popupBox(w, h, want int) (x, y, pw, ph int) {
 	pw = popupW(w)
 	ph = clampInt(want, 6, max(h-3, 6))

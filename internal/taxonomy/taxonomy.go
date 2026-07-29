@@ -1,12 +1,9 @@
-// Package taxonomy collects the categories a parts source uses, so a category
-// can be picked before any search has run.
+// Package taxonomy collects the categories a parts source uses.
 //
 // Neither LCSC nor JLCPCB publishes the taxonomy its search index labels results
-// with. LCSC's category tree is the website's navigation, on a different id space
-// than the search results, and both vendors ignore a category id in a query. What
-// they do return is a parent and leaf category on every row, so the taxonomy is
-// harvested by running a handful of broad searches and keeping the labels. It is
-// cached on disk because it barely changes.
+// with: LCSC's category tree is the website's navigation, on a different id space
+// than the results, and both ignore a category id in a query. Every result does
+// carry a parent and leaf category, so the list is crawled from searches.
 package taxonomy
 
 import (
@@ -23,12 +20,8 @@ import (
 )
 
 // probes open the crawl. A broad word returns a page dominated by one category, so
-// a second round searches the parent names round one found — that reaches the
-// siblings, taking the harvest from ~94 leaves to ~258.
-//
-// It is still a crawl over a search box, so it will not find every category. What
-// closes the gap is use: Add persists the categories of every search you run, so a
-// category the crawl missed joins the list the first time you search into it.
+// Harvest runs a second round over the parents these turn up: ~94 leaves becomes
+// ~258. Still incomplete, which is what Add is for.
 var probes = []string{
 	"capacitor", "resistor", "inductor", "connector", "microcontroller",
 	"led", "diode", "transistor", "regulator", "crystal",
@@ -36,12 +29,10 @@ var probes = []string{
 	"amplifier", "memory", "mosfet", "ferrite", "antenna",
 }
 
-// ttl is how long a cached taxonomy is used before it's harvested again. A
-// distributor's category list changes on the order of months.
+// A distributor's category list changes on the order of months.
 const ttl = 7 * 24 * time.Hour
 
-// workers is how many probes run at once, matching the vendor clients' own cap.
-const workers = 6
+const workers = 6 // matches the vendor clients' own cap
 
 // Cat is one leaf category and the group it belongs to.
 type Cat struct {
@@ -54,7 +45,6 @@ type cacheFile struct {
 	Cats    []Cat     `json:"cats"`
 }
 
-// cacheDir is overridable so tests don't touch the user's real cache.
 var cacheDir = defaultCacheDir
 
 func defaultCacheDir() string {
@@ -65,12 +55,11 @@ func defaultCacheDir() string {
 	return filepath.Join(base, "bomexpo", "taxonomy")
 }
 
-// SetCacheDir points the on-disk cache somewhere else, for tests.
+// SetCacheDir points the cache somewhere else, for tests.
 func SetCacheDir(dir string) { cacheDir = func() string { return dir } }
 
-// Load returns the source's categories, from cache when it's fresh and by
-// harvesting otherwise. A harvest that fails entirely returns the stale cache if
-// there is one, so a flaky network degrades to yesterday's list rather than none.
+// Load returns the source's categories, crawling when the cache is cold or stale.
+// A failed crawl serves the stale cache if there is one.
 func Load(p part.Provider) ([]Cat, error) {
 	if p == nil {
 		return nil, nil
@@ -87,22 +76,18 @@ func Load(p part.Provider) ([]Cat, error) {
 		}
 		return nil, harvestErr
 	}
-	// Keep anything the cache knew that this harvest happened to miss: the probes
-	// reach most of a catalogue, not all of it, and which corners they miss varies.
+	// keep what the cache knew and this crawl missed
 	write(p.ID(), Merge(cached, cats))
 	return Merge(cached, cats), nil
 }
 
-// Harvest crawls the source for its categories: the probe words, then the parent
-// categories those turned up.
+// Harvest crawls the probe words, then the parents they turn up.
 func Harvest(p part.Provider) ([]Cat, error) {
 	seen, err := sweep(p, probes)
 	if len(seen) == 0 {
 		return nil, err
 	}
 
-	// Round two: a parent's name as the keyword returns a spread of its children,
-	// which one broad word never does.
 	var parents []string
 	done := map[string]bool{}
 	for _, c := range seen {
@@ -115,7 +100,6 @@ func Harvest(p part.Provider) ([]Cat, error) {
 	return Merge(seen, more), nil
 }
 
-// sweep searches every keyword and returns the categories they mention.
 func sweep(p part.Provider, words []string) ([]Cat, error) {
 	var (
 		mu   sync.Mutex
@@ -153,9 +137,8 @@ func sweep(p part.Provider, words []string) ([]Cat, error) {
 	return dedupe(seen), nil
 }
 
-// Add folds a result set's categories into the cached list and keeps them. This is
-// how the crawl's blind spots close: search into a category it missed and it is
-// there from then on.
+// Add writes a result set's categories into the cache, which is how the crawl's
+// blind spots close.
 func Add(id string, ps []part.Part) []Cat {
 	fresh := FromParts(ps)
 	if len(fresh) == 0 {
@@ -163,7 +146,7 @@ func Add(id string, ps []part.Part) []Cat {
 	}
 	cached, _, err := read(id)
 	if err != nil && len(cached) == 0 {
-		return fresh // nothing cached yet; Load will write the crawl soon enough
+		return fresh // nothing cached yet
 	}
 	merged := Merge(cached, fresh)
 	if len(merged) > len(cached) {
@@ -172,8 +155,7 @@ func Add(id string, ps []part.Part) []Cat {
 	return merged
 }
 
-// Merge folds extra categories into a list, dropping duplicates. It's how a
-// result set the user just searched teaches the cached taxonomy something new.
+// Merge folds extra categories in, dropping duplicates.
 func Merge(base []Cat, extra ...[]Cat) []Cat {
 	all := append([]Cat(nil), base...)
 	for _, e := range extra {
@@ -182,7 +164,6 @@ func Merge(base []Cat, extra ...[]Cat) []Cat {
 	return dedupe(all)
 }
 
-// FromParts reads the categories off a result set.
 func FromParts(ps []part.Part) []Cat {
 	var out []Cat
 	for _, p := range ps {
@@ -248,8 +229,7 @@ func read(id string) ([]Cat, time.Duration, error) {
 	return f.Cats, time.Since(f.Fetched), nil
 }
 
-// write stores the list, ignoring failures: a taxonomy that can't be cached is
-// re-harvested next time, which is slower but not wrong.
+// write ignores failures: an uncached taxonomy is just re-crawled next time.
 func write(id string, cats []Cat) {
 	p := path(id)
 	if p == "" {
@@ -267,16 +247,11 @@ func write(id string, cats []Cat) {
 
 var paren = regexp.MustCompile(`\s*\([^)]*\)`)
 
-// Keyword turns a category name into something a keyword search can use, since
-// neither vendor will take a category id. Measured against LCSC: the full name
-// finds nothing for several categories, and dropping the parenthesised notes, the
-// qualifier after a dash and the packaging words fixes most of them —
-// "Chip Resistor - Surface Mount" goes from 27 in-category hits per page to 89,
-// "Inductors (SMD)" from 3 to 13.
-//
-// It is a heuristic over a search box, not a category query: some categories still
-// come back thin or empty, which is why the caller pages and says so when nothing
-// matches.
+// Keyword turns a category name into one a search box handles, since neither
+// vendor takes a category id. Measured on LCSC: dropping the parenthesised note,
+// the qualifier after a dash and the packaging words takes "Chip Resistor -
+// Surface Mount" from 27 in-category hits a page to 89. Some categories still come
+// back empty, so callers page and say so.
 func Keyword(category string) string {
 	s := paren.ReplaceAllString(category, "")
 	if i := strings.Index(s, " - "); i > 0 {

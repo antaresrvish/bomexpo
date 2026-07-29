@@ -2,14 +2,15 @@
 
 ![release](https://img.shields.io/github/v/release/antaresrvish/bomexpo) ![downloads](https://img.shields.io/github/downloads/antaresrvish/bomexpo/total) [![homebrew](https://img.shields.io/badge/homebrew-antaresrvish%2Ftap-informational)](https://github.com/antaresrvish/homebrew-tap) ![AUR](https://img.shields.io/aur/version/bomexpo-bin) ![license](https://img.shields.io/github/license/antaresrvish/bomexpo)
 
-Turn a KiCad board into a JLCPCB assembly order from the terminal. Point bomexpo at a
-`.kicad_pcb`, assign an LCSC part to each component, and export the BOM, CPL and Gerbers
-as one order-ready zip.
+Pick parts and place an order without leaving the terminal. Point bomexpo at a
+`.kicad_pcb` and it reads the components, values, placements, nets and board outline
+straight out of the file — then you assign an LCSC or JLCPCB part to each one and export
+the BOM, CPL and Gerbers as a single order-ready zip.
 
-Everything comes from the `.kicad_pcb` itself — components, values, placements and the
-board outline.
+It also works without a board: hand it a BOM csv and you get the same table, and the
+Parts tab searches and compares parts whether or not a design is open.
 
-![bomexpo Components view](docs/components-view.png)
+![bomexpo Components view](docs/components.png)
 
 ## Install
 
@@ -39,58 +40,102 @@ A winget package is in review.
 bomexpo path/to/board.kicad_pcb
 # a project folder or .kicad_pro works too
 bomexpo ~/designs/drone
+# a plain BOM csv, with the placement csv if you have one
+bomexpo bom.csv positions.csv
 ```
 
+Five tabs: **Load** opens a design, **Components** is the table, **Parts** is the parts
+browser, **Check** exports, and **Compare** shows up once you've pinned two parts.
 
+![Load screen](docs/load.png)
 
-Components start unassigned. Search LCSC to pick a part, or press `a` to auto-assign by
-value, package and type. As you move through the table, the side panel shows the selected
-part's stock, price and specs next to a live board preview. Once everything is assigned
-and in stock, the Check tab writes the zip you upload to JLCPCB.
-
-In the Parts tab, `/` opens a popup over the results: the same query on top, and every
-category your results fall into below, boxed and grouped the way the source groups them.
-Arrows pick one, `enter` narrows the table to it. The boxes come from the results, not a catalogue —
-neither LCSC nor JLCPCB will search inside a category, but both label every part with one.
+Components start unassigned. Search for a part, or press `a` to auto-assign by value,
+package and type. As you move through the table the side panel shows the selected part's
+stock, price and specs next to its footprint. Once everything is assigned and in stock,
+Check writes the zip you upload.
 
 Common keys: `enter` assign · `a` auto-assign · `o` cycle rotation override · `x` exclude
 · `w` write LCSC codes back to the pcb · `t`/`b`/`i` open a 3D render · `r` refresh stock
-· `n` filter by net.
+· `n` filter by net · `tab` filter the table.
+
+### Two sources
+
+LCSC and JLCPCB both work with no API key. `o` switches between them, `-source jlcpcb`
+picks one at startup, and `default_source` in `config.json` makes it stick — under
+`~/.config/bomexpo` on Linux, `~/Library/Application Support/bomexpo` on macOS.
+
+They answer different questions. LCSC is the shop: stock and price for buying parts
+yourself. JLCPCB is the assembler: it says whether a part is in their basic library or
+costs a per-part setup fee, and Check totals that up before you commit.
+
+### Filtering the table
+
+`tab` opens the query and it completes itself — type nothing and it offers the keys, type
+`net:` and it offers the board's own nets with how many line items each would show.
+
+```
+net:GND          on that net
+ref:C1  val:100nF  fp:0402  lcsc:C1525
+lib:basic        assembly library standing
+st:unassigned    line-item state
+0402             bare text: reference, value or footprint
+-st:excluded     leading minus inverts the term
+```
+
+Terms are ANDed. Whatever survives lights up on the board next to the table, so a net
+filter is also a way to see where that net actually goes.
+
+### Parts and compare
+
+![Parts tab](docs/parts.png)
+
+Reaching for the search in Parts opens a popup first: *what kind of part?* Every category
+the source knows, boxed and grouped, with its own input for narrowing the list. Pick one
+and you're searching inside it from then on — `t` reopens it to change your mind. The
+category list is crawled from the source and cached for a week, because neither vendor
+publishes the taxonomy it labels parts with, nor will search by category. A category it
+missed joins the list the first time you search into one.
+
+`p` pins a part, up to four. Pinned parts stay put whatever you search next, and once you
+have two the Compare tab appears: a card each with its footprint on top and every field
+they differ on below, the better value brighter.
+
+![Compare tab](docs/compare.png)
 
 ### Moving around
 
-Whatever has the keyboard is marked with `▸`. A text field keeps every key while it's
-focused, and `tab` is how you take it back — so a search box never swallows a command
-again. Once a list has focus the letters are the commands (`p` pin, `d` datasheet, `s`
-in-stock only, `/` back to typing), and `[` `]` or `1`–`5` switch tabs. Arrow keys always
-drive the list, focused or not.
+Whatever has the keyboard is marked with `▸`. A text field keeps every key while it has
+focus and `tab` is how you take it back, so a search box never swallows a command. Once a
+list has focus the letters are the commands, and `[` `]` or `1`–`5` switch tabs. Arrows
+always drive the list either way.
 
-Landing on a tab never takes the keyboard, so tab switching keeps working; press `/` or
-`tab` when you want to type. On the Load screen `↓` walks into the directory listing and
-`enter` opens what's highlighted. On Check the issue list and the board both want the
-arrows, so `tab` walks the three panes — issues, board, output path — and `↑↓` goes to
-whichever has the keyboard.
-
+Landing on a tab never takes the keyboard, so the tab keys keep working — press `/` or
+`tab` when you want to type. On Load, `↓` walks into the directory listing. On Check the
+issue list and the board both want the arrows, so `tab` walks the three panes and `↑↓`
+goes to whichever has them.
 
 ## What it does
 
-- Live LCSC stock, unit price and volume pricing per part.
+- Live stock, unit price and volume pricing from LCSC or JLCPCB, no API key.
 - Auto-assign that matches value, package, tolerance, voltage and dielectric, and skips
   out-of-stock parts.
+- Flags parts that aren't in JLCPCB's basic library, since each one adds a setup fee, and
+  totals the order at 1 through 500 boards.
 - Footprint rotation corrected for JLCPCB's pick-and-place, with a per-part override you
   can save.
+- Reads pad nets, so you can filter the table by net and see it highlighted on the board.
+- Draws the selected part's footprint, downloading it for parts that aren't on your board.
 - Honours KiCad DNP and exclude-from-BOM flags, and warns when an assigned value drifts
   from the schematic.
 - Writes assignments back into the `.kicad_pcb`, so they persist and travel with the
   design in git.
+- Opens a BOM csv as well as a board, with placements from a csv if you have one.
 - Exports BOM + CPL + Gerbers in a single zip.
 
-Gerber/CPL export and the 3D render use `kicad-cli`, which ships with KiCad.
+![Check tab](docs/check.png)
 
-## Images
-![Load screen](docs/load-view.png)
-![bomexpo Components view](docs/components-view.png)
-![Check tab](docs/check-view.png)
+Gerber/CPL export and the 3D render use `kicad-cli`, which ships with KiCad. Everything
+else needs nothing but the binary.
 
 ## Build from source
 

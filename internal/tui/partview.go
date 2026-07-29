@@ -6,23 +6,22 @@ import (
 	"bomexpo/internal/part"
 )
 
-// Shared presentation for a list of parts. Both the assign search and the Parts
-// tab render through here so the two tables look and measure identically.
+// Both the assign search and the Parts tab render through here, so the two tables
+// look and measure identically.
 
 const (
 	scCode = 9
 	scLib  = 9 // fits "Preferred", the longest library name
 	scPkg  = 7
-	// An assembler's stock runs into the tens of millions, so this has to hold
-	// a grouped 9-digit number without eliding it.
+	// wide enough for a grouped 9-digit number: assembly stock hits the tens of
+	// millions
 	scStock = 11
 	scPrice = 8
 	scDs    = 9
 	scMpn   = 18
 )
 
-// scols are the result column widths. The LIBRARY column only exists for a
-// source that reports library standing, so LCSC doesn't pay for an empty one.
+// LIBRARY only exists for a source that reports it, so LCSC pays nothing for it.
 type scols struct {
 	code, lib, pkg, stock, price, ds, mpn, desc int
 }
@@ -41,8 +40,8 @@ func (m Model) resultCols(w int) scols {
 	return c
 }
 
-// dsRange is the x-span of the DATASHEET column (content x=2, the 2-wide row
-// marker, then the columns before it joined by 3-wide separators).
+// dsRange spans the DATASHEET column: content x=2, the 2-wide marker, then the
+// columns before it joined by 3-wide separators.
 func (c scols) dsRange() (int, int) {
 	start := 4 + c.code + c.pkg + c.stock + c.price + 3*4
 	if c.lib > 0 {
@@ -51,8 +50,7 @@ func (c scols) dsRange() (int, int) {
 	return start, start + c.ds
 }
 
-// libCell renders a library standing, colour-coded by what it costs on an
-// assembly order: basic is free, extended pays a per-part setup fee.
+// libCell colours by what it costs: basic is free, extended pays a setup fee.
 func libCell(k part.LibKind, s string) string {
 	switch k {
 	case part.LibBasic:
@@ -82,9 +80,8 @@ func partHead(c scols, w int) string {
 	return colHeadStyle.Render(padRender(strings.Join(heads, " | "), w))
 }
 
-// partRow renders one result row. marker is the 2-wide gutter (cursor and pin
-// state). The cursor row stays unstyled per cell so the row highlight reads as
-// one block.
+// marker is the 2-wide gutter. The cursor row stays unstyled per cell so the
+// highlight reads as one block.
 func partRow(p part.Part, c scols, w int, marker string, cursor bool) string {
 	dsc := ""
 	if p.Datasheet != "" {

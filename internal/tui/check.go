@@ -12,9 +12,8 @@ import (
 	"bomexpo/internal/value"
 )
 
-// checkPane is which of the page's three parts has the keyboard. The panes both
-// want the up and down arrows — the issue list scrolls, the board pans — so
-// something has to say which one gets them.
+// checkPane says which pane has the keyboard. The issue list and the board both
+// want the up and down arrows.
 type checkPane int
 
 const (
@@ -33,8 +32,8 @@ func newCheckState() checkState {
 	return checkState{out: newField("› ", "output .zip path", 56)}
 }
 
-// setPane moves the keyboard, keeping the output field's own focus in step so
-// there's only one answer to "what has the keys".
+// setPane keeps the output field's own focus in step, so there's one answer to
+// what has the keys.
 func (cs *checkState) setPane(p checkPane) {
 	cs.pane = p
 	if p == paneOut {
@@ -44,7 +43,7 @@ func (cs *checkState) setPane(p checkPane) {
 	cs.out.Blur()
 }
 
-// cyclePane walks the ring: issues → board → output path → issues.
+// cyclePane walks issues → board → output path.
 func (cs *checkState) cyclePane(dir int) {
 	cs.setPane(checkPane((int(cs.pane) + dir + 3) % 3))
 }
@@ -154,13 +153,12 @@ func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.check.cyclePane(-1)
 		return m, nil
 	case "e", "/":
-		m.check.setPane(paneOut) // straight to the path, skipping the ring
+		m.check.setPane(paneOut)
 		return m, nil
 	case "enter":
 		return m.startExport()
 
-	// Up and down belong to whichever pane has the keyboard — that's the whole
-	// reason this page has a focus ring.
+	// up and down belong to whichever pane has the keyboard
 	case "up", "k":
 		if m.check.pane == paneBoard {
 			m.boardv = m.boardv.panBy(0, -1)
@@ -181,7 +179,7 @@ func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "i":
 		return m.openRender("iso")
 
-	// The issue list has no horizontal axis and no zoom, so these need no ring.
+	// the issue list has no horizontal axis and no zoom, so these need no ring
 	case "+", "=":
 		m.boardv = m.boardv.zoomBy(zoomStep)
 	case "-", "_":
@@ -417,8 +415,8 @@ func sideBySide(left, right []string, leftW, w, h int) []string {
 // boardPane is the right-hand column of the Check page: the whole board, as big
 // as the page allows.
 func (m Model) boardPane(w, h int) []string {
-	// Both text rows carry the mark's width so they stay aligned with each other;
-	// the drawing below keeps the full width, being a centred canvas.
+	// both text rows carry the mark's width so they stay aligned; the drawing keeps
+	// the full width, being a centred canvas
 	mark := focusMark(m.check.pane == paneBoard)
 	head := mark + m.boardHeader()
 	if m.boardW > 0 {
@@ -436,9 +434,7 @@ func (m Model) boardPane(w, h int) []string {
 	return append(out, m.miniBoard(w, drawH)...)
 }
 
-// boardCaption says what's being drawn and how to move it. With the board
-// focused the plain arrows pan it, otherwise they belong to the issue list and
-// only the horizontal ones reach here.
+// boardCaption names the keys, which differ by whether the board has the arrows.
 func (m Model) boardCaption() string {
 	keys := "+- zoom · ←→ pan · 0 reset · tab to pan ↑↓"
 	if m.check.pane == paneBoard {

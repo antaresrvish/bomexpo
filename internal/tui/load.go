@@ -15,17 +15,13 @@ import (
 // loadListing is how many directory entries the listing shows at once.
 const loadListing = 9
 
-// loadHintW keeps the footer a fixed width so the centred block doesn't shift
-// when focus moves between the path and the listing.
-const loadHintW = 70
+const loadHintW = 70 // fixed, or the centred block shifts when focus moves
 
-// loadState has three keyboard states, and field.Focused() plus cursor say which:
-// typing in the path, a listing row picked, or neither — in which case the page
-// has the keyboard and the tab keys work.
+// loadState has three keyboard states, told apart by field.Focused() and cursor:
+// typing the path, a listing row picked, or neither — page focused, tab keys live.
 type loadState struct {
-	field textfield
-	// cursor is the highlighted listing row, or -1 when no row is picked.
-	cursor int
+	field  textfield
+	cursor int // highlighted listing row, or -1
 }
 
 func newLoadState(project string) loadState {
@@ -35,30 +31,27 @@ func newLoadState(project string) loadState {
 	return loadState{field: f, cursor: -1}
 }
 
-// focusPath puts the keyboard on the path field. On first launch there's nothing
-// else to do, so Init calls it; coming back to the tab later does not.
+// focusPath is called by Init, where there's nothing else to do, but not by
+// gotoTab.
 func (ls *loadState) focusPath() tea.Cmd {
 	ls.field.Focus()
 	ls.cursor = -1
 	return nil
 }
 
-// loadEntries is the listing the user sees, so key handling and rendering can
-// never disagree about what row 3 is.
+// loadEntries keeps key handling and rendering agreeing on what row 3 is.
 func (m Model) loadEntries() []fsEntry {
 	_, _, entries := listDir(m.load.field.Value(), loadListing)
 	return entries
 }
 
-// focusLoadField hands the keyboard back to the path field.
 func (m Model) focusLoadField() (tea.Model, tea.Cmd) {
 	m.load.cursor = -1
 	m.load.field.Focus()
 	return m, nil
 }
 
-// openLoadEntry acts on the highlighted listing row: a directory becomes the new
-// path to browse, a file gets opened.
+// openLoadEntry browses a directory or opens a file.
 func (m Model) openLoadEntry(e fsEntry) (tea.Model, tea.Cmd) {
 	dir, _, _ := listDir(m.load.field.Value(), loadListing)
 	full := filepath.Join(dir, e.name)
@@ -99,8 +92,7 @@ func (m Model) updateLoad(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.startLoad()
 	case "tab", "shift+tab":
 		if typing {
-			// tab completes the path, and hands the page back when there's nothing
-			// left to complete — the same deal as the filter query
+			// completes, then hands the page back with nothing left to complete
 			if next, ok := completePath(m.load.field.Value()); ok {
 				m.load.field.SetValue(next)
 				return m, nil
@@ -127,8 +119,6 @@ func (m Model) updateLoad(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// The path isn't focused, so the keys are commands — including tab switching,
-	// which is the whole reason arriving here doesn't grab the keyboard.
 	if mm, cmd, done := m.tabSwitchKey(key); done {
 		return mm, cmd
 	}
@@ -145,7 +135,6 @@ func (m Model) updateLoad(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// startLoad opens whatever the path field holds.
 func (m Model) startLoad() (tea.Model, tea.Cmd) {
 	path := strings.TrimSpace(m.load.field.Value())
 	if path == "" {
@@ -168,8 +157,6 @@ func (m Model) viewLoad(width, height int) string {
 		subtleStyle.Render("KiCad Fabrication tool"),
 		dimStyle.Render("▪ folder   ◆ board   ▤ bom csv"),
 	)
-	// Every hint is padded to the same width: the block is centre-placed, so a
-	// shorter line would slide the whole page sideways when focus moves.
 	var hint string
 	switch {
 	case m.load.cursor >= 0:
@@ -203,8 +190,7 @@ func (m Model) renderListing(input string) string {
 	for i, e := range entries {
 		glyph, style := "· ", dimStyle
 		switch {
-		// ▸ means focus everywhere else, so a directory can't wear it too
-		case e.isDir:
+		case e.isDir: // ▸ means focus, so a directory can't wear it
 			glyph, style = "▪ ", accentStyle
 		case e.kind == entryKicad:
 			glyph, style = "◆ ", codeStyle

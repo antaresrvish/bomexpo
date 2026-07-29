@@ -13,33 +13,27 @@ import (
 )
 
 const (
-	// cmpMinColW is the narrowest a part card can get before paging beats
-	// squashing: a label, a value and the box borders.
-	cmpMinColW = 24
-	// minCardH is the shortest a card can be and still hold a footprint drawing
-	// plus a field or two.
-	minCardH = 7
+	cmpMinColW = 24 // below this, paging beats squashing
+	minCardH   = 7  // a footprint drawing plus a field or two
 )
 
-// compareState is the scroll and selection position in the matrix; the parts
-// themselves live in partsState.pinned.
+// The parts themselves live in partsState.pinned.
 type compareState struct {
 	top   int // first visible row
 	sel   int // focused column, an index into pinned
 	first int // leftmost visible column
 }
 
-// cmpRow is one line of the matrix: a label and one value per pinned part.
 type cmpRow struct {
 	label  string
 	vals   []string
-	differ bool // values are not all the same — the whole point of the view
-	best   int  // column with the best value, or -1 when there's no ordering
+	differ bool // not all the same, which is the point of the view
+	best   int  // best column, or -1 when there's no ordering
 	rule   bool // a separator rather than data
 }
 
-// compareRows builds the matrix: the numbers you decide on first, then every
-// parameter any of the parts reports, with the ones they all share first.
+// compareRows puts the numbers you decide on first, then every parameter any part
+// reports, shared ones first.
 func compareRows(ps []part.Part) []cmpRow {
 	if len(ps) == 0 {
 		return nil
@@ -58,8 +52,7 @@ func compareRows(ps []part.Part) []cmpRow {
 		return s
 	}
 
-	// best is -1 unless the values have a meaningful ordering; 0 is a real
-	// column index, so it can't double as "none".
+	// best is -1 for no ordering; 0 is a real column index
 	plain := func(label string, f func(part.Part) string) cmpRow {
 		return cmpRow{label: label, vals: get(f), best: -1}
 	}
@@ -104,9 +97,8 @@ func compareRows(ps []part.Part) []cmpRow {
 	return rows
 }
 
-// paramRows turns the union of the parts' parameters into rows, keeping each
-// source's own ordering and putting parameters every part reports first — those
-// are the ones you can actually compare.
+// paramRows keeps the source's own ordering and leads with the parameters every
+// part reports, the only ones you can really compare.
 func paramRows(ps []part.Part) []cmpRow {
 	var order []string
 	seen := map[string]bool{}
@@ -149,8 +141,7 @@ func paramRows(ps []part.Part) []cmpRow {
 	return append(shared, partial...)
 }
 
-// argBest returns the index of the highest (or lowest) value, or -1 when fewer
-// than two parts report one.
+// argBest is -1 when fewer than two parts report a value.
 func argBest(ps []part.Part, f func(part.Part) (float64, bool), high bool) int {
 	best, bestI, n := 0.0, -1, 0
 	for i, p := range ps {
@@ -194,8 +185,6 @@ func countText(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
-// compareTitle names the panel, saying which cards are on screen when they don't
-// all fit.
 func (m Model) compareTitle() string {
 	n := len(m.parts.pinned)
 	if _, perPage, first := m.compareLayout(m.contentW()); perPage > 0 && perPage < n {
@@ -204,8 +193,7 @@ func (m Model) compareTitle() string {
 	return fmt.Sprintf("Compare %d parts", n)
 }
 
-// compareLayout decides how many columns fit and which slice of them is shown,
-// so a narrow terminal pages instead of squashing.
+// compareLayout pages a narrow terminal instead of squashing.
 func (m Model) compareLayout(w int) (colW, perPage, first int) {
 	n := len(m.parts.pinned)
 	if n == 0 {
@@ -220,8 +208,8 @@ func (m Model) compareLayout(w int) (colW, perPage, first int) {
 	return colW, perPage, first
 }
 
-// colFirst slides the visible window the least it can to keep the focused column
-// on screen, and never leaves part of the page blank when there's more to show.
+// colFirst slides the window the least it can, and never leaves a page part-blank
+// with more to show.
 func colFirst(first, sel, perPage, n int) int {
 	if perPage >= n {
 		return 0
@@ -235,14 +223,11 @@ func colFirst(first, sel, perPage, n int) int {
 	return clampInt(first, 0, n-perPage)
 }
 
-// compareFieldRows is how many differing fields a card shows at once, which is
-// what up and down scroll through.
 func (m Model) compareFieldRows() int {
 	botH := m.contentH() - m.contentH()*4/10 - 1
 	return max((botH-2)/2, 1)
 }
 
-// compareDiffCount is how many fields the pinned parts actually differ on.
 func (m Model) compareDiffCount() int {
 	n := 0
 	for _, r := range compareRows(m.parts.pinned) {
@@ -266,7 +251,7 @@ func (m Model) updateCompareKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.mode = modeParts
 		return m, nil
-	// there is one focusable thing here per card, so tab walks them
+	// one focusable thing per card, so tab walks them
 	case "tab", "right", "l":
 		m.compare.sel = min(n-1, m.compare.sel+1)
 		_, _, m.compare.first = m.compareLayout(m.contentW())
@@ -350,8 +335,7 @@ func (m Model) viewCompare(w, h int) string {
 		return dimStyle.Render("pin at least two parts in the Parts tab to compare them")
 	}
 
-	// 40% for the common ground, 60% for the per-part columns — the columns need
-	// the room, since each carries a drawing.
+	// the cards carry a drawing each, so they get the 60
 	topH := h * 4 / 10
 	botH := h - topH
 	if botH < minCardH+1 {
@@ -392,8 +376,7 @@ func (m Model) compareShared(w, h int) []string {
 		return append(out, dimStyle.Render("  nothing — these parts differ on every field"))
 	}
 
-	// Each entry is just a label and one value, so lay them out across the width
-	// rather than as a thin list with the pane half empty.
+	// label-and-value pairs, so they go across rather than down
 	cols := min(3, len(same))
 	if w/max(cols, 1) < 24 {
 		cols = max(1, w/24)
@@ -482,9 +465,8 @@ func (m Model) compareCard(idx int, diff []cmpRow, top, w, drawH, factH int) []s
 	if title == "" {
 		title = "—"
 	}
-	// The whole frame brightens rather than carrying a ▸ marker: a card is big
-	// enough that its border reads as the focus, and the code stays at a fixed
-	// column so the cards line up.
+	// the frame brightens instead of taking a ▸, so the code stays at a fixed
+	// column and the cards line up
 	fill := max(w-4-lipgloss.Width(title), 0)
 	out := []string{border.Render("╭ ") + name.Render(title) +
 		border.Render(" "+strings.Repeat("─", fill)+"╮")}

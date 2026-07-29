@@ -7,25 +7,16 @@ import (
 	"bomexpo/internal/kicad"
 )
 
-// A whole board squeezed into a sidebar is a smudge. One footprint at the same
-// size is legible, and it answers the question that actually comes up while
-// assigning parts: which way does this thing face, and how many pads does it
-// have?
-
 // maxSubpixelPerMM keeps the drawing to scale rather than stretched to fit.
 const maxSubpixelPerMM = 14
 
 type FootprintOptions struct {
-	W, H int
-	// Rotate is the angle the part is placed at, snapped to a quarter turn, so
-	// the drawing matches how it sits on the board.
-	Rotate float64
-	// Highlight names the net whose pads to pick out, or "" for none.
+	W, H      int
+	Rotate    float64
 	Highlight string
 }
 
-// Footprint draws a footprint's pads. Pad 1 is drawn in its own colour so the
-// orientation is readable at a glance.
+// Footprint draws the pads, with pad 1 in its own colour for orientation.
 func Footprint(lands []kicad.Land, opt FootprintOptions) string {
 	if len(lands) == 0 || opt.W < 6 || opt.H < 3 {
 		return ""
@@ -55,12 +46,9 @@ func Footprint(lands []kicad.Land, opt FootprintOptions) string {
 	}
 
 	pw, ph := opt.W, opt.H*2 // half-block rows give two subpixels of height
-	// A subpixel is about square (a cell is twice as tall as wide, and a row
-	// holds two), so one scale serves both axes.
+	// a subpixel is about square, so one scale serves both axes
 	scale := math.Min(float64(pw-2)/fw, float64(ph-2)/fh)
-	// Cap it, or a 0402 gets blown up into two slabs that fill the panel. With
-	// a ceiling, small parts draw small and you can tell a chip from a connector
-	// just by moving the cursor.
+	// capped, or an 0402 fills the panel as two slabs
 	if scale > maxSubpixelPerMM {
 		scale = maxSubpixelPerMM
 	}
@@ -89,8 +77,7 @@ func Footprint(lands []kicad.Land, opt FootprintOptions) string {
 	return compose(cv, opt.W, opt.H)
 }
 
-// turnLand rotates a pad about the footprint origin by whole quarter turns,
-// which is all the CPL ever asks for.
+// turnLand does whole quarter turns, all the CPL asks for.
 func turnLand(l kicad.Land, quarter int) kicad.Land {
 	for i := 0; i < quarter; i++ {
 		l.X, l.Y = -l.Y, l.X
@@ -99,9 +86,8 @@ func turnLand(l kicad.Land, quarter int) kicad.Land {
 	return l
 }
 
-// FootprintSummary is a one-line caption for the drawing: how many pads, how
-// big the land pattern is, and how many pads are drilled. The size matters
-// because the drawing is capped in scale, not measured off the screen.
+// FootprintSummary captions the drawing. Size matters because the drawing is
+// capped in scale, not measured off the screen.
 func FootprintSummary(lands []kicad.Land) string {
 	if len(lands) == 0 {
 		return ""

@@ -1,9 +1,6 @@
-// Package webjson calls a vendor's JSON endpoints politely: bounded
-// concurrency, a few retries on transient failures, and an on-disk cache so
-// repeat lookups are free and the app still works offline.
-//
-// It deliberately knows nothing about response envelopes — each vendor unwraps
-// its own.
+// Package webjson calls a vendor's JSON endpoints politely: bounded concurrency,
+// a few retries, and an on-disk cache so the app still works offline. It knows
+// nothing about response envelopes — each vendor unwraps its own.
 package webjson
 
 import (
@@ -19,7 +16,7 @@ import (
 )
 
 const (
-	// Vendors serve their JSON to browsers, so we identify as one.
+	// vendors serve this JSON to browsers, so identify as one
 	userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
 
@@ -27,8 +24,6 @@ const (
 	attempts = 3
 	inflight = 6
 
-	// CacheTTL is how long a cached entry is served before a normal load
-	// re-fetches it.
 	CacheTTL = 24 * time.Hour
 )
 
@@ -39,9 +34,7 @@ type Client struct {
 	referer  string
 }
 
-// New returns a client whose cache lives under the user cache dir in a
-// subdirectory named after the vendor. Caching is silently disabled if the
-// directory is unavailable.
+// New caches under the user cache dir, per vendor. No directory, no caching.
 func New(name, referer string) *Client {
 	c := &Client{
 		http:    &http.Client{Timeout: timeout},
@@ -55,10 +48,8 @@ func New(name, referer string) *Client {
 	return c
 }
 
-// Fetch performs the request, marshalling body as JSON when non-nil, and
-// returns the raw response. Transport errors, unreadable bodies and responses
-// that aren't valid JSON are retried; the last error is reported if all
-// attempts fail.
+// Fetch retries transport errors, unreadable bodies and non-JSON responses,
+// reporting the last error if every attempt fails.
 func (c *Client) Fetch(method, url string, body any) ([]byte, error) {
 	if c.sem != nil {
 		c.sem <- struct{}{}
@@ -110,8 +101,7 @@ func (c *Client) Fetch(method, url string, body any) ([]byte, error) {
 			lastErr = err
 			continue
 		}
-		// A non-JSON body means an error page or a truncated read, both of
-		// which are worth another try.
+		// an error page or a truncated read, both worth another try
 		if !json.Valid(data) {
 			lastErr = fmt.Errorf("decode: response is not json (%d bytes, status %s)", len(data), resp.Status)
 			continue
@@ -121,8 +111,7 @@ func (c *Client) Fetch(method, url string, body any) ([]byte, error) {
 	return nil, lastErr
 }
 
-// SetCacheDir redirects the cache, which tests use to stay out of the real
-// user cache dir. An empty dir disables caching.
+// SetCacheDir redirects the cache, for tests. Empty disables caching.
 func (c *Client) SetCacheDir(dir string) { c.cacheDir = dir }
 
 func (c *Client) cachePath(key string) string {
@@ -140,9 +129,8 @@ func (c *Client) cachePath(key string) string {
 	return filepath.Join(c.cacheDir, safe+".json")
 }
 
-// CacheGet reports the cached bytes for key, whether they are within CacheTTL,
-// and whether anything was cached at all. Callers decide whether a stale entry
-// is better than nothing.
+// CacheGet returns the bytes, whether they're fresh, and whether anything was
+// cached. Callers decide if stale beats nothing.
 func (c *Client) CacheGet(key string) (raw []byte, fresh, ok bool) {
 	p := c.cachePath(key)
 	if p == "" {
@@ -159,8 +147,7 @@ func (c *Client) CacheGet(key string) (raw []byte, fresh, ok bool) {
 	return data, time.Since(fi.ModTime()) < CacheTTL, true
 }
 
-// CachePut stores raw under key, ignoring failures — a cache miss is never
-// worth failing a lookup over.
+// CachePut ignores failures: a cache miss shouldn't fail a lookup.
 func (c *Client) CachePut(key string, raw []byte) {
 	p := c.cachePath(key)
 	if p == "" || len(raw) == 0 {

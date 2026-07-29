@@ -11,39 +11,23 @@ import (
 	"bomexpo/internal/taxonomy"
 )
 
-// The category popup opens the moment you reach the Parts search, before you've
-// typed anything: pick what kind of part you're after, then search inside it.
-//
-// It has its own input, which narrows the list of categories — it is not the parts
-// query. Picking a category closes the popup and hands the keyboard to the main
-// search field, so the two never take the same keystroke. `t` reopens it.
-//
-// The list comes from internal/taxonomy, harvested from the source itself, because
-// neither LCSC nor JLCPCB publishes the taxonomy it labels results with. The
-// filter it sets is applied to the results we fetch: both vendors ignore a
-// category id in a query, so there is no server-side category search to use.
+// The category popup opens on the way into the Parts search: pick what kind of
+// part, then search inside it. Its input narrows the category list and is not the
+// parts query; t reopens it. The pick filters the results we fetch, because
+// neither vendor will search by category.
 
 const (
-	// catMinBoxW is the narrowest a category box gets before the grid drops a
-	// column instead of squeezing the names into nothing.
-	catMinBoxW = 26
-	// catBoxGap is the least space between boxes in a row; the grid widens it to
-	// spread the columns evenly across the popup.
-	catBoxGap = 1
-	// catChromeH is everything in the popup that isn't a grid row: the frame's two
-	// borders and its shadow row, plus the title, filter, status, rule and footer.
+	catMinBoxW = 26 // below this the grid drops a column instead of squeezing
+	catBoxGap  = 1  // widened by catCols to spread the boxes evenly
 	catChromeH = 3 + 5
 )
 
-// catsLoadedMsg carries a harvested taxonomy.
 type catsLoadedMsg struct {
 	source string
 	cats   []taxonomy.Cat
 	err    error
 }
 
-// catState is the popup: its own filter input, the taxonomy it lists, and where
-// the cursor is in the grid.
 type catState struct {
 	open    bool
 	field   textfield
@@ -58,20 +42,19 @@ func newCatState() catState {
 	return catState{field: newField("› ", "type to narrow the categories…", 40)}
 }
 
-// catCell is one thing the grid holds: a category box, or the group heading above
-// a run of them. Headings are laid out but never focused.
+// catCell is a category box or a group heading. Headings are laid out, never
+// focused.
 type catCell struct {
 	label   string
-	count   int // matching results, or 0 when nothing has been searched yet
+	count   int // matching results, 0 before anything is searched
 	parent  string
 	heading bool
-	// all marks the box that clears the filter rather than setting one.
-	all bool
+	all     bool // the box that clears the filter
 }
 
-// catGroups builds the grid's cells: an "everything" box, then each parent
-// category as a heading with its leaves under it. Counts come from the current
-// results, so the categories your search actually hit sort to the front.
+// catGroups builds the cells: an everything box, then each parent as a heading
+// with its leaves. Counts come from the current results, so what your search hit
+// sorts first.
 func catGroups(cats []taxonomy.Cat, counts map[string]int, query string) []catCell {
 	q := strings.ToLower(strings.TrimSpace(query))
 	byParent := map[string][]catCell{}
@@ -93,8 +76,6 @@ func catGroups(cats []taxonomy.Cat, counts map[string]int, query string) []catCe
 	for p := range byParent {
 		parents = append(parents, p)
 	}
-	// Parents with results first, then alphabetically — a search you just ran is
-	// more interesting than the rest of the catalogue.
 	sort.Slice(parents, func(i, j int) bool {
 		if a, b := parentTotal[parents[i]], parentTotal[parents[j]]; a != b {
 			return a > b
@@ -121,8 +102,7 @@ func catGroups(cats []taxonomy.Cat, counts map[string]int, query string) []catCe
 	return cells
 }
 
-// catCounts is how many of the current results fall in each category, keyed by
-// lowercased leaf name.
+// catCounts keys by lowercased leaf name.
 func (m Model) catCounts() map[string]int {
 	out := map[string]int{}
 	for _, p := range m.parts.preCat() {
@@ -133,14 +113,12 @@ func (m Model) catCounts() map[string]int {
 	return out
 }
 
-// catCells is the grid as both the key handling and the view see it.
 func (m Model) catCells() []catCell {
 	return catGroups(m.cat.cats, m.catCounts(), m.cat.field.Value())
 }
 
-// catCols is how many boxes fit across, how wide each one is, and the gap between
-// them. The boxes stay a uniform width and the gap takes up the slack, so the row
-// reaches the right edge and a click still maps to a column with plain division.
+// catCols keeps a uniform box width and lets the gap take up the slack, so the row
+// fills the width and a click still maps to a column by division.
 func catCols(w int) (cols, boxW, gap int) {
 	cols = max(1, (w+catBoxGap)/(catMinBoxW+catBoxGap))
 	boxW = (w - (cols-1)*catBoxGap) / cols
@@ -151,8 +129,7 @@ func catCols(w int) (cols, boxW, gap int) {
 	return cols, boxW, gap
 }
 
-// catLayout places the cells into grid rows. A heading takes a whole row, and a
-// run of boxes wraps across the columns beneath it.
+// catLayout gives a heading its own row and wraps the boxes beneath it.
 func catLayout(cells []catCell, cols int) [][]int {
 	var rows [][]int
 	var cur []int
@@ -177,7 +154,6 @@ func catLayout(cells []catCell, cols int) [][]int {
 	return rows
 }
 
-// catPickable is every cell index the cursor may land on, in grid order.
 func catPickable(cells []catCell) []int {
 	var out []int
 	for i, c := range cells {
@@ -188,9 +164,8 @@ func catPickable(cells []catCell) []int {
 	return out
 }
 
-// catFirstMatch is where the cursor goes after narrowing the list: the first real
-// category, not the box that clears the filter. Typing "usb" and pressing enter
-// has to give you USB, not everything.
+// catFirstMatch skips the clear-the-filter box: typing "usb" then enter has to
+// give you USB, not everything.
 func catFirstMatch(cells []catCell) int {
 	for i, c := range cells {
 		if !c.heading && !c.all {
@@ -203,27 +178,21 @@ func catFirstMatch(cells []catCell) int {
 	return 0
 }
 
-// catGridW is the width the grid is laid out to: the popup's inner width. It
-// depends only on the terminal width, so the popup's height can be derived from it
+// catGridW depends only on the terminal width, so catPopupH can build on it
 // without the two chasing each other.
 func (m Model) catGridW() int { return popupW(m.contentW()) - 5 }
 
-// catGeom is where the popup sits and how big it is: tall enough for its grid,
-// capped by the page.
 func (m Model) catGeom() (x, y, pw, ph int) {
 	cols, _, _ := catCols(m.catGridW())
 	rows := catLayout(m.catCells(), cols)
 	return popupBox(m.contentW(), m.contentH(), catChromeH+3*max(len(rows), 1))
 }
 
-// catVisibleRows is how many grid rows fit inside the popup.
 func (m Model) catVisibleRows() int {
 	_, _, _, ph := m.catGeom()
 	return max((ph-catChromeH)/3, 1)
 }
 
-// catsCmd harvests the source's taxonomy. It runs once per source per week; the
-// cache does the rest.
 func (m Model) catsCmd() tea.Cmd {
 	src := m.src()
 	if src == nil {
@@ -243,7 +212,6 @@ func (m Model) updateCatsLoaded(msg catsLoadedMsg) (tea.Model, tea.Cmd) {
 	m.cat.loading = false
 	m.cat.loaded = msg.source
 	if msg.err != nil && len(msg.cats) == 0 {
-		// The popup still works off whatever the current results mention.
 		m.flash = "could not load the category list: " + msg.err.Error()
 		return m, nil
 	}
@@ -251,9 +219,8 @@ func (m Model) updateCatsLoaded(msg catsLoadedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// openCategories shows the popup with its own filter focused. The parts query is
-// deliberately blurred: two inputs on screen taking the same keystrokes is what
-// made this confusing before.
+// openCategories focuses the popup's own filter and blurs the parts query: two
+// inputs taking the same keystroke is what made this confusing before.
 func (m Model) openCategories() (tea.Model, tea.Cmd) {
 	m.cat.open = true
 	m.cat.cursor, m.cat.top = 0, 0
@@ -261,7 +228,6 @@ func (m Model) openCategories() (tea.Model, tea.Cmd) {
 	m.cat.field.Focus()
 	m.parts.field.Blur()
 
-	// fold in whatever the results already know, so the list is never empty
 	m.cat.cats = taxonomy.Merge(m.cat.cats, taxonomy.FromParts(m.parts.results))
 	if m.cat.loaded == m.srcID() || m.cat.loading {
 		return m, nil
@@ -270,8 +236,7 @@ func (m Model) openCategories() (tea.Model, tea.Cmd) {
 	return m, m.catsCmd()
 }
 
-// closeCategories hands the keyboard to the parts query, which is what you want
-// next whether you picked a category or backed out.
+// closeCategories hands the keyboard to the parts query either way.
 func (m Model) closeCategories() (tea.Model, tea.Cmd) {
 	m.cat.open = false
 	m.cat.field.Blur()
@@ -279,7 +244,6 @@ func (m Model) closeCategories() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// applyCategory sets or clears the category filter and closes the popup.
 func (m Model) applyCategory(c catCell) (tea.Model, tea.Cmd) {
 	if c.all {
 		m.parts.cat = ""
@@ -295,9 +259,8 @@ func (m Model) applyCategory(c catCell) (tea.Model, tea.Cmd) {
 	m.parts.cursor, m.parts.top = 0, 0
 	mm, _ := m.closeCategories()
 	m = mm.(Model)
-	// Picking a category is itself a request to see what's in it, even with nothing
-	// typed. Clearing one with nothing typed has nothing to search, so the results
-	// already on screen stay rather than being wiped.
+	// Picking is itself a request to see what's in it. Clearing with nothing typed
+	// has nothing to search, so what's on screen stays.
 	if strings.TrimSpace(m.parts.field.Value()) == "" && m.parts.cat == "" {
 		m.parts.clamp(m.partsRows())
 		return m, nil
@@ -305,8 +268,8 @@ func (m Model) applyCategory(c catCell) (tea.Model, tea.Cmd) {
 	return m.researchParts()
 }
 
-// moveCat walks the grid. Left and right step through the boxes in order, up and
-// down move a row at a time, keeping roughly the same column.
+// moveCat steps the boxes in order horizontally and a row at a time vertically,
+// holding roughly the same column.
 func (m Model) moveCat(dx, dy int) (tea.Model, tea.Cmd) {
 	cells := m.catCells()
 	pick := catPickable(cells)
@@ -328,7 +291,6 @@ func (m Model) moveCat(dx, dy int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// find the cursor's row and column, then step vertically to the nearest box
 	r, col := 0, 0
 	for ri, row := range rows {
 		for ci, idx := range row {
@@ -374,8 +336,6 @@ func (m Model) updateCatKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	cells := m.catCells()
 	key := msg.String()
 
-	// The arrows drive the grid whether or not the filter has the keyboard, the
-	// same as every other list in the app.
 	switch key {
 	case "esc":
 		return m.closeCategories()
@@ -443,9 +403,8 @@ func (m Model) mouseCat(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) {
 	cols, boxW, gap := catCols(m.catGridW())
 	rows := catLayout(cells, cols)
 
-	// Screen to popup: the tab bar and panel border, then where the popup sits,
-	// its own border and padding, and the title, filter, status and rule above the
-	// grid.
+	// screen to grid: tab bar and panel border, the popup, its border and padding,
+	// then the four rows above the boxes
 	px, py, _, _ := m.catGeom()
 	gridX := 2 + px + 2
 	gridY := 2 + py + 1 + 4
@@ -464,8 +423,8 @@ func (m Model) mouseCat(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) {
 	return m.applyCategory(cells[row[col]])
 }
 
-// viewCategories draws the Parts tab with the category popup floating over it, so
-// the results you are narrowing stay visible around the box.
+// viewCategories floats the popup over the Parts tab, so the results you're
+// narrowing stay visible around it.
 func (m Model) viewCategories(w, h int) string {
 	bg := strings.Split(m.viewParts(w, h), "\n")
 	x, y, pw, ph := m.catGeom()
@@ -480,8 +439,6 @@ func (m Model) catTitle() string {
 	return "What kind of part? · " + m.srcLabel()
 }
 
-// catContent is what goes inside the popup: the category filter, a status line,
-// and the grid of boxes.
 func (m Model) catContent(w, h int) []string {
 	cells := m.catCells()
 	cols, boxW, gap := catCols(w)
@@ -505,8 +462,7 @@ func (m Model) catContent(w, h int) []string {
 		case m.cat.loading:
 			status += dimStyle.Render("   " + m.spin.View() + " loading more")
 		case m.cat.field.Value() == "":
-			// The list is crawled, not published, so it has blind spots. Say so
-			// rather than letting a missing category look like it doesn't exist.
+			// the list is crawled, so a gap must not look like an absence
 			status += dimStyle.Render("   not in here? search for it and it gets added")
 		}
 	}
@@ -543,16 +499,15 @@ func (m Model) catContent(w, h int) []string {
 	}
 	out = out[:h-1]
 	out = append(out, dimStyle.Render(catFooter(len(rows), m.cat.top, vis, w)))
-	// Every line goes through padRender: a box row that overran would push the
-	// popup border out and skew the whole grid.
+	// a box row that overran would push the popup border out
 	for i := range out {
 		out[i] = padRender(out[i], w)
 	}
 	return out
 }
 
-// catFooter names the keys, and says when the grid runs past the popup — rows
-// scrolling away with nothing on screen to say so reads as "that's all of them".
+// catFooter names the keys and counts the rows scrolled off, which otherwise read
+// as "that's all of them".
 func catFooter(rows, top, vis, w int) string {
 	var off []string
 	if top > 0 {
@@ -565,8 +520,7 @@ func catFooter(rows, top, vis, w int) string {
 	if len(off) > 0 {
 		tail = "   " + strings.Join(off, " ") + " more"
 	}
-	// The offscreen count is the part that must survive a narrow popup, so the
-	// key list is what gets shortened.
+	// the offscreen count outlives the key list when it's tight
 	for _, keys := range []string{
 		"↑↓←→ pick · enter search inside it · type to narrow · esc back",
 		"↑↓←→ pick · enter pick it · type to narrow · esc back",
@@ -580,9 +534,8 @@ func catFooter(rows, top, vis, w int) string {
 	return strings.TrimSpace(tail)
 }
 
-// catBox draws one category as a three-line box: top rule, name, count. The count
-// is only drawn when it means something — before any search there is nothing to
-// count.
+// catBox draws a category as a three-line box. The count only appears once there
+// are results to count.
 func catBox(c catCell, w int, focused bool) []string {
 	border, name := borderStyle, subtleStyle
 	if focused {

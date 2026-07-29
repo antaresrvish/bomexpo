@@ -19,9 +19,7 @@ import (
 //	0402             bare text: reference, value or footprint
 //	-st:excluded     leading minus inverts the term
 //
-// Matching is case-insensitive, and per-field — see fieldMatch. Values and
-// references match a token's start (val:1k does not find 5.1k), while footprints
-// and nets match anywhere (net:3v3 finds +3V3).
+// Matching is case-insensitive and per-field, see fieldMatch.
 var filterKeys = []string{"net", "ref", "val", "fp", "lcsc", "lib", "st"}
 
 type filterTerm struct {
@@ -31,10 +29,8 @@ type filterTerm struct {
 }
 
 type filter struct {
-	raw   string
-	terms []filterTerm
-	// unknown holds key-looking prefixes we didn't recognise, so a typo says so
-	// instead of silently matching nothing.
+	raw     string
+	terms   []filterTerm
 	unknown []string
 }
 
@@ -56,8 +52,7 @@ func parseFilter(s string) filter {
 			case knownKey(lk):
 				t.key, t.want = lk, strings.ToLower(v)
 			case isWord(lk):
-				// looks like a key but isn't one — say so rather than
-				// searching for the literal text and finding nothing
+				// a key we don't know, so say so rather than find nothing
 				f.unknown = append(f.unknown, lk)
 				continue
 			default:
@@ -95,7 +90,6 @@ func isWord(s string) bool {
 	return true
 }
 
-// match reports whether line item i survives the filter.
 func (f filter) match(m Model, i int) bool {
 	for _, t := range f.terms {
 		if t.hit(m, i) == t.negate {
@@ -123,7 +117,7 @@ func (t filterTerm) hit(m Model, i int) bool {
 	case "st":
 		return t.hitState(m, i)
 	}
-	// bare text: the columns you'd scan by eye
+	// bare text scans the columns you'd read by eye
 	return fieldMatch("ref", it.ID(), t.want) || anyMatch("ref", it.Designators, t.want) ||
 		fieldMatch("val", it.Value, t.want) || fieldMatch("fp", it.Footprint, t.want)
 }

@@ -16,9 +16,7 @@ import (
 // colhead,rule(5).
 const partsDataTop = 7
 
-// maxPinned is how many parts the compare matrix can show side by side and stay
-// readable at a normal terminal width.
-const maxPinned = 4
+const maxPinned = 4 // as many as compare stays readable with
 
 type partsDebounceMsg struct{ seq int }
 
@@ -28,9 +26,8 @@ type partsDoneMsg struct {
 	err   error
 }
 
-// pinDetailMsg carries the full record for a freshly pinned part; search results
-// come back with fewer parameters than a detail fetch, and the compare matrix
-// wants all of them.
+// pinDetailMsg carries the full record: search results come back with fewer
+// parameters than a detail fetch, and compare wants all of them.
 type pinDetailMsg struct {
 	source string
 	code   string
@@ -38,8 +35,6 @@ type pinDetailMsg struct {
 	err    error
 }
 
-// partsState is the Parts tab: a parts search that isn't tied to a board line
-// item, plus the shortlist being compared.
 type partsState struct {
 	field    textfield
 	results  []part.Part
@@ -52,9 +47,7 @@ type partsState struct {
 
 	inStockOnly bool
 	basicOnly   bool
-	// cat keeps only one leaf category, chosen from the category panel. Empty
-	// means every category.
-	cat string
+	cat         string // one leaf category, empty for all
 
 	pinned []part.Part
 }
@@ -63,9 +56,8 @@ func newPartsState() partsState {
 	return partsState{field: newField("› ", "search any part by value, mpn or code…", 46)}
 }
 
-// preCat is the results with every filter but the category applied. The category
-// panel groups over this, so picking a category doesn't make the other boxes
-// disappear.
+// preCat is every filter but the category, so the popup's boxes don't vanish when
+// you pick one.
 func (s partsState) preCat() []part.Part {
 	if !s.inStockOnly {
 		return s.results
@@ -93,10 +85,9 @@ func (s partsState) filtered() []part.Part {
 	return out
 }
 
-// rows is what the table shows: the pinned parts first, then the search results
-// with the pinned ones left out so nothing appears twice. Pins ignore the filters
-// and outlive the query — they're the shortlist you're working with, and you have
-// to be able to reach one to unpin it even when the search that found it is gone.
+// rows is the pinned parts then the results, minus anything already pinned. Pins
+// ignore the filters and outlive the query — you have to be able to reach one to
+// unpin it after the search that found it is gone.
 func (s partsState) rows() []part.Part {
 	out := append([]part.Part(nil), s.pinned...)
 	for _, p := range s.filtered() {
@@ -107,8 +98,7 @@ func (s partsState) rows() []part.Part {
 	return out
 }
 
-// resultsFrom is the row index the search results start at, which is where the
-// view draws a rule between the shortlist and everything else.
+// resultsFrom is where the view rules off the shortlist.
 func (s partsState) resultsFrom() int { return len(s.pinned) }
 
 // pinAt finds a pinned part by source and code, or -1.
@@ -121,8 +111,8 @@ func (s partsState) pinAt(source, code string) int {
 	return -1
 }
 
-// partsCount says what the row count is out of. A category filter only sees the
-// rows we fetched, so saying "of 5000" there would claim more than it does.
+// partsCount says what the count is out of. A category only sees the rows we
+// fetched, so "of 5000" would claim more than it does.
 func (m Model) partsCount(shown int) string {
 	s := m.parts
 	if s.cat != "" {
@@ -134,7 +124,7 @@ func (m Model) partsCount(shown int) string {
 func (m Model) partsRows() int {
 	n := m.contentH() - 6 // header block + the pinned footer line
 	if len(m.parts.pinned) > 0 {
-		n-- // the rule between the shortlist and the results takes a line
+		n-- // the rule under the shortlist
 	}
 	if n < 1 {
 		n = 1
@@ -164,8 +154,7 @@ func partsDebounceCmd(seq int) tea.Cmd {
 	})
 }
 
-// catPageLimit and catRowsWanted bound the paging done for a category filter:
-// enough pages to fill a screen, few enough not to hammer the vendor.
+// enough pages to fill a screen, few enough not to hammer the vendor
 const (
 	catPageLimit  = 4
 	catRowsWanted = 40
@@ -184,9 +173,7 @@ func (m Model) partsSearchCmd(token int, keyword string) tea.Cmd {
 		if err != nil || cat == "" {
 			return partsDoneMsg{token: token, res: res, err: err}
 		}
-		// A category is a filter over what comes back, so a keyword whose first
-		// page holds few of that category needs more pages before the table looks
-		// like anything.
+		// a keyword whose first page holds few of the category needs more pages
 		for page := 2; page <= catPageLimit && countIn(res.Items, cat) < catRowsWanted; page++ {
 			q.Page = page
 			more, err := src.Search(q)
@@ -199,7 +186,6 @@ func (m Model) partsSearchCmd(token int, keyword string) tea.Cmd {
 	}
 }
 
-// countIn is how many parts sit in a category.
 func countIn(ps []part.Part, cat string) int {
 	n := 0
 	for _, p := range ps {
@@ -228,12 +214,9 @@ func (m Model) updatePartsDebounce(msg partsDebounceMsg) (tea.Model, tea.Cmd) {
 	return m.researchParts()
 }
 
-// researchParts re-runs the Parts query, which a new keyword, a new source or a
-// server-side filter all call for.
-//
-// With a category picked and nothing typed it browses the category instead of
-// showing an empty table: neither vendor takes a category id, so the category's
-// own name becomes the keyword and the filter does the rest.
+// researchParts re-runs the query. With a category picked and nothing typed it
+// browses that category: neither vendor takes a category id, so the category's own
+// name becomes the keyword.
 func (m Model) researchParts() (tea.Model, tea.Cmd) {
 	m.parts.cursor, m.parts.top = 0, 0
 	kw := strings.TrimSpace(m.parts.field.Value())
@@ -262,8 +245,7 @@ func (m Model) updatePartsDone(msg partsDoneMsg) (tea.Model, tea.Cmd) {
 	m.parts.results = msg.res.Items
 	m.parts.total = msg.res.Total
 	m.parts.cursor, m.parts.top = 0, 0
-	// Every search teaches the category list something: the crawl that builds it
-	// can't reach every corner, but a search that lands in one can.
+	// the crawl can't reach every corner, but a search that lands in one can
 	if grown := taxonomy.Add(m.srcID(), msg.res.Items); len(grown) > len(m.cat.cats) {
 		m.cat.cats = grown
 	} else {
@@ -272,8 +254,8 @@ func (m Model) updatePartsDone(msg partsDoneMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updatePinDetail swaps the fuller record in, as long as that part is still
-// pinned — the user may have unpinned it while the fetch was in flight.
+// updatePinDetail checks the part is still pinned: it may have gone while the
+// fetch was in flight.
 func (m Model) updatePinDetail(msg pinDetailMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil || msg.part.Code == "" {
 		return m, nil // the search-result copy stands in fine
@@ -284,8 +266,6 @@ func (m Model) updatePinDetail(msg pinDetailMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// togglePin pins or unpins the row under the cursor, fetching the full record
-// on a pin.
 func (m Model) togglePin() (tea.Model, tea.Cmd) {
 	f := m.parts.rows()
 	if m.parts.cursor < 0 || m.parts.cursor >= len(f) {
@@ -307,8 +287,7 @@ func (m Model) togglePin() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.pinDetailCmd(p.Source, p.Code), m.landsCmd(p.Code))
 }
 
-// landsCmd downloads a part's footprint unless we already have it — from the
-// board or from an earlier download.
+// landsCmd skips the download when the board or an earlier fetch already has it.
 func (m Model) landsCmd(code string) tea.Cmd {
 	if code == "" || m.boardLandsFor(code) != nil {
 		return nil
@@ -323,9 +302,8 @@ func (m Model) updatePartsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	typing := m.parts.field.Focused()
 
-	// Keys that work whichever pane has focus: the arrows always drive the list,
-	// and the ctrl forms of every command stay available so nothing has to be
-	// relearned.
+	// Whichever pane has focus: the arrows drive the list and the ctrl forms of
+	// every command keep working.
 	switch key {
 	case "esc":
 		if typing {
@@ -374,11 +352,9 @@ func (m Model) updatePartsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "/", "i":
-		// Reaching for the search opens the category popup first: pick what kind
-		// of part you want, then type inside it.
-		return m.openCategories()
+		return m.openCategories() // the search opens onto the categories
 	case "t":
-		return m.openCategories() // and t is how you change your mind later
+		return m.openCategories()
 	case "p", " ":
 		return m.togglePin()
 	case "c":
@@ -525,8 +501,6 @@ func (m Model) viewParts(w, h int) string {
 	vis := m.partsRows()
 	end := min(len(rows), s.top+vis)
 	for i := s.top; i < end; i++ {
-		// a rule between the shortlist and the search results, so the pinned block
-		// reads as its own thing rather than as the first few hits
 		if i == s.resultsFrom() && i > 0 {
 			lines = append(lines, borderStyle.Render(strings.Repeat("╌", w)))
 		}

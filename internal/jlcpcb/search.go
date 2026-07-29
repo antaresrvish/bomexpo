@@ -105,8 +105,7 @@ func (w component) toPart() part.Part {
 			p.Prices = append(p.Prices, part.Price{Ladder: wp.Start, USD: wp.Price})
 		}
 	}
-	// PriceAt walks the ladder in order and stops at the first break above the
-	// quantity, so it must be ascending.
+	// PriceAt stops at the first break above the quantity, so keep it ascending
 	sort.SliceStable(p.Prices, func(i, j int) bool { return p.Prices[i].Ladder < p.Prices[j].Ladder })
 
 	for _, a := range w.Attrs {
@@ -158,8 +157,7 @@ func decodeList(raw json.RawMessage) (items []component, raws []json.RawMessage,
 // and falling back to a stale copy if the network is unavailable.
 func (c *Client) Detail(code string) (part.Part, error) { return c.detail(code, false) }
 
-// Refresh re-fetches a part, bypassing the cache, and stores the fresh stock
-// and pricing back into it.
+// Refresh bypasses the cache and stores what it gets back into it.
 func (c *Client) Refresh(code string) (part.Part, error) { return c.detail(code, true) }
 
 func (c *Client) detail(code string, force bool) (part.Part, error) {

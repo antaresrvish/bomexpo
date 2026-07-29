@@ -1,7 +1,5 @@
-// Package config stores the handful of preferences that shouldn't have to be
-// retyped every run. A missing or broken config is never fatal — the defaults
-// stand in silently, because failing to start over a preferences file would be
-// absurd.
+// Package config stores the preferences that shouldn't be retyped every run. A
+// missing or broken file is never fatal; the defaults stand in silently.
 package config
 
 import (
@@ -11,20 +9,16 @@ import (
 	"strings"
 )
 
-// Config is the on-disk preferences file.
 type Config struct {
-	// DefaultSource is the parts source to open with, by provider ID.
 	DefaultSource string `json:"default_source,omitempty"`
 
-	// Keys holds credentials for sources that need them, by provider ID.
-	// Environment variables win over this file — see Key.
+	// by provider ID; env wins over this, see Key
 	Keys map[string]string `json:"keys,omitempty"`
 }
 
-// Default is what bomexpo uses when there's no config to read.
 func Default() Config { return Config{DefaultSource: "lcsc"} }
 
-// Dir is where the config lives, or "" if the OS won't tell us.
+// Dir is "" when the OS won't tell us.
 func Dir() string {
 	d, err := os.UserConfigDir()
 	if err != nil {
@@ -33,7 +27,6 @@ func Dir() string {
 	return filepath.Join(d, "bomexpo")
 }
 
-// Path is the config file, or "" if there's nowhere to put it.
 func Path() string {
 	d := Dir()
 	if d == "" {
@@ -42,8 +35,7 @@ func Path() string {
 	return filepath.Join(d, "config.json")
 }
 
-// Load reads the config, falling back to Default for anything missing or
-// unreadable.
+// Load falls back to Default for anything missing or unreadable.
 func Load() Config {
 	p := Path()
 	if p == "" {
@@ -67,8 +59,7 @@ func loadFrom(path string) Config {
 	return c
 }
 
-// Save writes the config, creating its directory. The file is owner-only
-// because it may hold credentials.
+// Save writes owner-only, since the file may hold credentials.
 func Save(c Config) error {
 	p := Path()
 	if p == "" {
@@ -88,9 +79,7 @@ func saveTo(path string, c Config) error {
 	return os.WriteFile(path, append(raw, '\n'), 0o600)
 }
 
-// Key returns the credential for a source: the BOMEXPO_<SOURCE>_KEY environment
-// variable if set, otherwise whatever the config file holds. Env comes first so
-// a key never has to be written to disk to be used.
+// Key prefers BOMEXPO_<SOURCE>_KEY, so a key never has to reach disk to be used.
 func (c Config) Key(source string) string {
 	if source == "" {
 		return ""

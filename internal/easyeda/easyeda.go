@@ -1,9 +1,6 @@
-// Package easyeda reads a part's land pattern from EasyEDA, so a part that
-// isn't on your board can still be drawn.
-//
-// EasyEDA is the CAD side of the LCSC/JLCPCB family and serves this without a
-// key, the same way the other two do. Only the pads are read — that's what a
-// footprint drawing needs; symbols and 3D models are left alone.
+// Package easyeda reads a part's land pattern, so a part that isn't on your board
+// can still be drawn. EasyEDA is the CAD side of the LCSC/JLCPCB family and serves
+// this without a key. Only the pads are read; symbols and 3D models are left.
 package easyeda
 
 import (
@@ -32,7 +29,6 @@ type Client struct {
 
 func New() *Client { return &Client{w: webjson.New("easyeda", site)} }
 
-// Footprint is a part's land pattern, ready to draw.
 type Footprint struct {
 	Code    string
 	Package string
@@ -59,8 +55,7 @@ type result struct {
 	} `json:"packageDetail"`
 }
 
-// Fetch returns the land pattern for an LCSC part code, from the on-disk cache
-// when it's fresh.
+// Fetch reads from the on-disk cache when it's fresh.
 func (c *Client) Fetch(code string) (Footprint, error) {
 	code = strings.TrimSpace(code)
 	if code == "" {
@@ -117,8 +112,7 @@ func parse(code string, raw []byte) (Footprint, error) {
 	if v, ok := ds.Head.CPara["package"].(string); ok {
 		fp.Package = v
 	}
-	// The shapes are in a document-wide coordinate space; the head's x/y is the
-	// footprint's own origin.
+	// shapes are document-space; the head's x/y is the footprint origin
 	ox, oy := ds.Head.X, ds.Head.Y
 	for _, s := range ds.Shape {
 		if l, ok := parsePad(s, ox, oy); ok {
@@ -135,8 +129,7 @@ func parse(code string, raw []byte) (Footprint, error) {
 //
 //	PAD~shape~x~y~w~h~layer~net~number~holeR~points~rot~id~…
 //
-// Layer 1 is the top copper, 2 the bottom, and 11 a through-hole that spans
-// both. A non-zero hole radius means it's drilled.
+// Layer 1 is top copper, 2 bottom, 11 a through-hole. A hole radius means drilled.
 func parsePad(s string, ox, oy float64) (kicad.Land, bool) {
 	if !strings.HasPrefix(s, "PAD~") {
 		return kicad.Land{}, false

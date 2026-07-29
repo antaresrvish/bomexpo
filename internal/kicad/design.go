@@ -7,9 +7,8 @@ import (
 	"strings"
 )
 
-// Design is everything bomexpo needs to work with, whether it came from a KiCad
-// board or from a plain BOM export. A CSV design has no PCBPath, which is what
-// gerber export and the 3D render key off.
+// Design covers both a KiCad board and a plain BOM export. A CSV design has no
+// PCBPath, which is what gerber export and the 3D render key off.
 type Design struct {
 	Name    string
 	PCBPath string // empty when there's no board behind this design
@@ -20,19 +19,15 @@ type Design struct {
 	Placements []Placement
 	Board      *Board
 	Nets       []Net // empty for a CSV design: a BOM carries no connectivity
-	// Lands maps a footprint name to its pads, so a line item can be drawn from
-	// its Footprint field. Empty for a CSV design.
+	// footprint name to pads; empty for a CSV design
 	Lands  map[string][]Land
 	Layers int
 	BoardW float64
 	BoardH float64
 }
 
-// FromBoard reports whether a .kicad_pcb backs this design.
 func (d *Design) FromBoard() bool { return d.PCBPath != "" }
 
-// IsBOMFile reports whether a path looks like a spreadsheet export rather than a
-// KiCad design.
 func IsBOMFile(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".csv", ".tsv":
@@ -41,9 +36,8 @@ func IsBOMFile(path string) bool {
 	return false
 }
 
-// Load opens a design: a .kicad_pcb, a project folder or .kicad_pro, or a BOM
-// CSV. cplPath is only used for a CSV BOM — when empty, a placement file sitting
-// beside the BOM is picked up automatically.
+// Load takes a .kicad_pcb, a project folder or .kicad_pro, or a BOM CSV. cplPath
+// is only for a CSV BOM; empty picks up a placement file sitting beside it.
 func Load(path, cplPath string) (*Design, error) {
 	full, err := ExpandPath(path)
 	if err != nil {
@@ -81,8 +75,7 @@ func loadBOM(bomPath, cplPath string) (*Design, error) {
 		Items:   GroupItems(items),
 	}
 
-	// An explicitly named placement file has to work or say why; one we found
-	// ourselves is a bonus and stays quiet.
+	// a named placement file has to work or say why; a found one stays quiet
 	explicit := strings.TrimSpace(cplPath) != ""
 	if !explicit {
 		cplPath = findCPL(bomPath)
@@ -107,15 +100,13 @@ func loadBOM(bomPath, cplPath string) (*Design, error) {
 	}
 	d.CPLPath = full
 	d.Placements = pl
-	// No outline to frame with, so frame on where the parts actually sit. Board
-	// size stays zero: the placement extent isn't the board's size and claiming
-	// otherwise would be a lie in the status bar.
+	// No outline, so frame on where the parts sit. Board size stays zero — the
+	// placement extent isn't the board's size.
 	d.Board = placementFrame(pl)
 	return d, nil
 }
 
-// findCPL looks for the placement file that usually ships alongside a BOM
-// export. It returns "" rather than guessing wildly.
+// findCPL returns "" rather than guessing wildly.
 func findCPL(bomPath string) string {
 	dir := filepath.Dir(bomPath)
 	ext := filepath.Ext(bomPath)
@@ -146,8 +137,7 @@ func findCPL(bomPath string) string {
 	return ""
 }
 
-// placementFrame builds the bounding box of the placements so the board view has
-// something to draw when there's no outline to go on.
+// placementFrame gives the board view something to draw without an outline.
 func placementFrame(pl []Placement) *Board {
 	if len(pl) == 0 {
 		return nil

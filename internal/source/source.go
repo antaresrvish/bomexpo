@@ -1,6 +1,5 @@
-// Package source wires the concrete parts sources together. It exists as its
-// own package so the vendor clients can depend on the neutral part types
-// without anything depending back on them.
+// Package source wires the parts sources together. Separate package so the vendor
+// clients can depend on the neutral part types with nothing depending back.
 package source
 
 import (
@@ -12,8 +11,8 @@ import (
 	"bomexpo/internal/part"
 )
 
-// New returns every built-in source, in display order. Call it once — each
-// source owns an HTTP client and a cache directory.
+// New returns every source in display order. Call it once: each owns an HTTP
+// client and a cache directory.
 func New() []part.Provider {
 	return []part.Provider{
 		lcsc.New().Provider(),
@@ -21,7 +20,7 @@ func New() []part.Provider {
 	}
 }
 
-// Index finds a source by ID, or -1 when there's no such source.
+// Index is -1 when there's no such source.
 func Index(ps []part.Provider, id string) int {
 	id = strings.ToLower(strings.TrimSpace(id))
 	if id == "" {
@@ -35,9 +34,8 @@ func Index(ps []part.Provider, id string) int {
 	return -1
 }
 
-// Start picks which source to open with: the requested one if it exists, then
-// the configured default, then the first available. An unknown request is
-// reported so the caller can say so rather than silently ignoring the flag.
+// Start prefers the requested source, then the configured default, then the
+// first. An unknown request is reported rather than ignored.
 func Start(ps []part.Provider, cfg config.Config, want string) (idx int, unknown string) {
 	if want != "" {
 		if i := Index(ps, want); i >= 0 {
@@ -51,7 +49,6 @@ func Start(ps []part.Provider, cfg config.Config, want string) (idx int, unknown
 	return 0, unknown
 }
 
-// IDs lists the source IDs, for help text and error messages.
 func IDs(ps []part.Provider) []string {
 	out := make([]string, 0, len(ps))
 	for _, p := range ps {
