@@ -11,7 +11,7 @@ import (
 )
 
 func TestDatasheetColumnAlignment(t *testing.T) {
-	m := New("", "")
+	m := New(Options{})
 	m.w, m.h = 140, 40
 	m.items = []kicad.Item{
 		{Bases: []string{"C1"}, Value: "100nF", Footprint: "C_0402_1005Metric", Quantity: 1, LCSC: "C1525"},

@@ -35,7 +35,11 @@ func (b boardState) sideOr() string {
 // openRender renders the chosen board side (top/bottom/iso) via kicad-cli and
 // opens the photorealistic result in the external viewer.
 func (m Model) openRender(side string) (tea.Model, tea.Cmd) {
-	if m.pcbPath == "" || m.boardv.rendering {
+	if m.boardv.rendering {
+		return m, nil
+	}
+	if m.pcbPath == "" {
+		m.flash = "no board to render — this design came from a csv"
 		return m, nil
 	}
 	m.boardv.side = side

@@ -81,7 +81,7 @@ func TestLiveAutoAssign(t *testing.T) {
 		{Bases: []string{"C1"}, Value: "100nF", Footprint: "C_0402_1005Metric", Quantity: 10},
 		{Bases: []string{"C2"}, Value: "10uF", Footprint: "C_0805_2012Metric", Quantity: 2},
 	}
-	m := New("", "")
+	m := New(Options{})
 	m.items = lines
 
 	for i, it := range lines {

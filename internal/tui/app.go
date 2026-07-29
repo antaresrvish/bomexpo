@@ -58,13 +58,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err.Error()
 			return m, nil
 		}
-		m.name = msg.name
-		m.pcbPath = msg.pcbPath
-		m.items = msg.items
-		m.placements = msg.placements
-		m.board = msg.board
-		m.layers = msg.layers
-		m.boardW, m.boardH = msg.boardW, msg.boardH
+		d := msg.design
+		m.name = d.Name
+		m.pcbPath, m.bomPath, m.cplPath = d.PCBPath, d.BOMPath, d.CPLPath
+		m.items = d.Items
+		m.placements = d.Placements
+		m.board = d.Board
+		m.layers = d.Layers
+		m.boardW, m.boardH = d.BoardW, d.BoardH
 		m.assigned = make([]*part.Part, len(m.items))
 		m.excluded = make([]bool, len(m.items))
 		dnp, exb := 0, 0
@@ -82,8 +83,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cursor, m.top, m.hoff = 0, 0, 0
 		m.sort, m.sortAsc = sortNone, false
 		m.err = ""
-		m.status = fmt.Sprintf("%s · %d components in %d line items", msg.name, len(m.placements), len(m.items))
-		m.flash = fmt.Sprintf("loaded %s — %d line items", msg.name, len(m.items))
+		kind := "board"
+		if !m.fromBoard() {
+			kind = "bom csv"
+		}
+		m.status = fmt.Sprintf("%s · %s · %d components in %d line items",
+			d.Name, kind, len(m.placements), len(m.items))
+		m.flash = fmt.Sprintf("loaded %s — %d line items", d.Name, len(m.items))
+		if d.CPLPath != "" {
+			m.flash += " · cpl " + filepath.Base(d.CPLPath)
+		}
 		if dnp > 0 {
 			m.flash += fmt.Sprintf(" · %d DNP", dnp)
 		}
@@ -229,7 +238,7 @@ func (m Model) routeMouse(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	switch md {
 	case modeCheck:
-		m.check.setDefault(m.pcbPath)
+		m.check.setDefault(m.sourcePath())
 		m.check.out.Focus()
 		m.mode = md
 		return m, nil

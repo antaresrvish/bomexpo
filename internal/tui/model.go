@@ -83,7 +83,9 @@ type Model struct {
 	check   checkState
 
 	name       string
-	pcbPath    string
+	pcbPath    string // empty for a CSV design
+	bomPath    string // set when the line items came from a CSV
+	cplPath    string // set when the placements came from a CSV
 	items      []kicad.Item
 	placements []kicad.Placement
 	board      *kicad.Board
@@ -92,6 +94,10 @@ type Model struct {
 	layers     int
 	boardW     float64
 	boardH     float64
+
+	// cplArg is the placement csv named on the command line, used when the
+	// design being opened is a BOM csv.
+	cplArg string
 
 	cursor int
 	top    int
@@ -122,21 +128,27 @@ const (
 	sortRot
 )
 
-// New builds the initial model. srcWant names the parts source to open with and
-// may be empty, in which case the configured default is used.
-func New(project, srcWant string) Model {
+// Options are the startup inputs, all optional.
+type Options struct {
+	Project string // path to open on start: a board, a folder, or a BOM csv
+	CPL     string // placement csv to pair with a BOM csv
+	Source  string // parts source to open with; empty uses the configured default
+}
+
+// New builds the initial model.
+func New(opt Options) Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
 
 	srcs := source.New()
-	idx, unknown := source.Start(srcs, config.Load(), srcWant)
+	idx, unknown := source.Start(srcs, config.Load(), opt.Source)
 
-	m := Model{srcs: srcs, srcIdx: idx, mode: modeLoad, spin: sp}
+	m := Model{srcs: srcs, srcIdx: idx, mode: modeLoad, spin: sp, cplArg: opt.CPL}
 	if unknown != "" {
 		m.err = fmt.Sprintf("unknown source %q — using %s (have: %s)",
 			unknown, srcs[idx].ID(), strings.Join(source.IDs(srcs), ", "))
 	}
-	m.load = newLoadState(project)
+	m.load = newLoadState(opt.Project)
 	m.search = newSearchState()
 	m.parts = newPartsState()
 	m.check = newCheckState()
@@ -173,15 +185,8 @@ func (m Model) Init() tea.Cmd {
 }
 
 type projectLoadedMsg struct {
-	name       string
-	pcbPath    string
-	items      []kicad.Item
-	placements []kicad.Placement
-	board      *kicad.Board
-	layers     int
-	boardW     float64
-	boardH     float64
-	err        error
+	design *kicad.Design
+	err    error
 }
 
 type searchDoneMsg struct {
@@ -232,17 +237,13 @@ func (m Model) autoAssignCmd(idx int) tea.Cmd {
 	}
 }
 
-func loadProjectCmd(path string) tea.Cmd {
+func loadProjectCmd(path, cplPath string) tea.Cmd {
 	return func() tea.Msg {
-		p, err := kicad.LoadProject(path)
+		d, err := kicad.Load(path, cplPath)
 		if err != nil {
 			return projectLoadedMsg{err: err}
 		}
-		return projectLoadedMsg{
-			name: p.Name, pcbPath: p.PCBPath,
-			items: p.BOM(), placements: p.Placements(), board: p.Board(),
-			layers: p.Layers, boardW: p.BoardW, boardH: p.BoardH,
-		}
+		return projectLoadedMsg{design: d}
 	}
 }
 
@@ -396,6 +397,18 @@ func (m Model) dnpCount() int {
 		}
 	}
 	return n
+}
+
+// fromBoard reports whether a .kicad_pcb backs the loaded design; gerbers, the
+// 3D render and write-back all need one.
+func (m Model) fromBoard() bool { return m.pcbPath != "" }
+
+// sourcePath is the file the design was opened from, whichever kind it is.
+func (m Model) sourcePath() string {
+	if m.pcbPath != "" {
+		return m.pcbPath
+	}
+	return m.bomPath
 }
 
 // libOf is the assembly library standing of the part assigned to line i, or

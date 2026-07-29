@@ -62,6 +62,72 @@ func collapsePanel(designators []string) []string {
 	return bases
 }
 
+// GroupItems turns a flat list of rows into sorted line items.
+//
+// Rows that already list several designators are taken as pre-grouped by
+// whatever exported them, and are only sorted — re-merging those could fold
+// together rows the exporter split deliberately, say two part codes for the same
+// value and footprint.
+func GroupItems(items []Item) []Item {
+	for _, it := range items {
+		if len(it.Designators) > 1 {
+			out := append([]Item(nil), items...)
+			sortItems(out)
+			return out
+		}
+	}
+	return mergeItems(items)
+}
+
+// mergeItems merges rows describing the same part — same value, footprint and
+// DNP flag — into one line item, then sorts everything by reference.
+func mergeItems(items []Item) []Item {
+	type key struct {
+		v, f string
+		dnp  bool
+	}
+	var order []key
+	groups := map[key]*Item{}
+
+	for _, in := range items {
+		k := key{in.Value, in.Footprint, in.DNP}
+		it, ok := groups[k]
+		if !ok {
+			cp := in
+			cp.Designators, cp.Bases, cp.Quantity = nil, nil, 0
+			groups[k] = &cp
+			order = append(order, k)
+			it = &cp
+		} else {
+			// a group is only excluded when every member is
+			it.ExcludeBOM = it.ExcludeBOM && in.ExcludeBOM
+		}
+		it.Designators = append(it.Designators, in.Designators...)
+		it.Bases = append(it.Bases, in.Bases...)
+		it.Quantity += max(in.Quantity, len(in.Designators))
+		if it.LCSC == "" {
+			it.LCSC = in.LCSC
+		}
+		if !it.HasRotOverride && in.HasRotOverride {
+			it.HasRotOverride, it.RotOverride = true, in.RotOverride
+		}
+	}
+
+	out := make([]Item, 0, len(order))
+	for _, k := range order {
+		it := groups[k]
+		sort.SliceStable(it.Bases, func(i, j int) bool { return refLess(it.Bases[i], it.Bases[j]) })
+		sort.SliceStable(it.Designators, func(i, j int) bool { return refLess(it.Designators[i], it.Designators[j]) })
+		out = append(out, *it)
+	}
+	sortItems(out)
+	return out
+}
+
+func sortItems(items []Item) {
+	sort.SliceStable(items, func(i, j int) bool { return refLess(items[i].ID(), items[j].ID()) })
+}
+
 func ImportBOM(path string) ([]Item, error) {
 	rows, err := readCSV(path)
 	if err != nil {

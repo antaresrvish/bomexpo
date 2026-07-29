@@ -17,7 +17,7 @@ type loadState struct {
 }
 
 func newLoadState(project string) loadState {
-	f := newField("› ", "KiCad project folder, .kicad_pro, or .kicad_pcb", 60)
+	f := newField("› ", "a .kicad_pcb, a project folder, or a BOM .csv", 60)
 	f.SetValue(project)
 	f.Focus()
 	return loadState{field: f}
@@ -33,13 +33,16 @@ func (m Model) updateLoad(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		path := strings.TrimSpace(m.load.field.Value())
 		if path == "" {
-			m.err = "enter a KiCad project path"
+			m.err = "enter a board or BOM path"
 			return m, nil
 		}
 		m.err = ""
 		m.loading = true
 		m.status = "Reading KiCad project…"
-		return m, loadProjectCmd(path)
+		if kicad.IsBOMFile(path) {
+			m.status = "Reading BOM…"
+		}
+		return m, loadProjectCmd(path, m.cplArg)
 	case "tab":
 		if next, ok := completePath(m.load.field.Value()); ok {
 			m.load.field.SetValue(next)
@@ -55,6 +58,7 @@ func (m Model) viewLoad(width, height int) string {
 		logo(),
 		"",
 		subtleStyle.Render("KiCad Fabrication tool"),
+		dimStyle.Render("◆ board   ▤ bom csv"),
 	)
 	form := lipgloss.JoinVertical(lipgloss.Left,
 		labelStyle.Render("Project  ")+m.load.field.View(),
@@ -81,8 +85,10 @@ func (m Model) renderListing(input string) string {
 		switch {
 		case e.isDir:
 			lines = append(lines, accentStyle.Render("  ▸ "+e.name+"/"))
-		case e.isKicad:
+		case e.kind == entryKicad:
 			lines = append(lines, codeStyle.Render("  ◆ "+e.name))
+		case e.kind == entryBOM:
+			lines = append(lines, okStyle.Render("  ▤ "+e.name))
 		default:
 			lines = append(lines, dimStyle.Render("  · "+e.name))
 		}
@@ -90,11 +96,21 @@ func (m Model) renderListing(input string) string {
 	return strings.Join(lines, "\n")
 }
 
+// fsEntry ranks directory entries so the files you're likely to open float to
+// the top of the listing.
 type fsEntry struct {
-	name    string
-	isDir   bool
-	isKicad bool
+	name  string
+	isDir bool
+	kind  entryKind
 }
+
+type entryKind int
+
+const (
+	entryOther entryKind = iota
+	entryKicad
+	entryBOM
+)
 
 func listDir(input string, maxN int) (dir, filter string, entries []fsEntry) {
 	if strings.TrimSpace(input) == "" {
@@ -123,21 +139,26 @@ func listDir(input string, maxN int) (dir, filter string, entries []fsEntry) {
 			continue
 		}
 		low := strings.ToLower(name)
-		entries = append(entries, fsEntry{
-			name:    name,
-			isDir:   e.IsDir(),
-			isKicad: strings.HasSuffix(low, ".kicad_pcb") || strings.HasSuffix(low, ".kicad_pro"),
-		})
+		kind := entryOther
+		switch {
+		case strings.HasSuffix(low, ".kicad_pcb"), strings.HasSuffix(low, ".kicad_pro"):
+			kind = entryKicad
+		case kicad.IsBOMFile(low):
+			kind = entryBOM
+		}
+		entries = append(entries, fsEntry{name: name, isDir: e.IsDir(), kind: kind})
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		rank := func(e fsEntry) int {
 			switch {
 			case e.isDir:
 				return 0
-			case e.isKicad:
+			case e.kind == entryKicad:
 				return 1
-			default:
+			case e.kind == entryBOM:
 				return 2
+			default:
+				return 3
 			}
 		}
 		if a, b := rank(entries[i]), rank(entries[j]); a != b {

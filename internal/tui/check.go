@@ -21,13 +21,16 @@ func newCheckState() checkState {
 	return checkState{out: newField("› ", "output .zip path", 56)}
 }
 
-func (cs *checkState) setDefault(pcbPath string) {
-	if cs.out.Value() != "" || pcbPath == "" {
+// setDefault seeds the output path from whatever file the design was opened
+// from. It used to only know how to strip ".kicad_pcb", which left a CSV design
+// with an empty path and an export that failed on "output path is empty".
+func (cs *checkState) setDefault(srcPath string) {
+	if cs.out.Value() != "" || srcPath == "" {
 		return
 	}
-	dir := filepath.Dir(pcbPath)
-	name := strings.TrimSuffix(filepath.Base(pcbPath), ".kicad_pcb")
-	cs.out.SetValue(filepath.Join(dir, name+"-order.zip"))
+	base := filepath.Base(srcPath)
+	name := strings.TrimSuffix(base, filepath.Ext(base))
+	cs.out.SetValue(filepath.Join(filepath.Dir(srcPath), name+"-order.zip"))
 }
 
 type issue struct {
@@ -313,13 +316,29 @@ func (m Model) preflightAndManifest(w int) []string {
 		}
 		return badStyle.Render("✗ ") + warnStyle.Render(fail)
 	}
+	// A CSV design isn't failing when it has no board — it never had one.
+	na := func(s string) string { return dimStyle.Render("– " + s) }
+
 	checklist := []string{
 		accentStyle.Render("Pre-flight"),
 		chk(active > 0 && un == 0, fmt.Sprintf("all %d line items assigned", active), fmt.Sprintf("%d line items need an LCSC part", un)),
 		chk(oos == 0, "all assigned parts in stock", fmt.Sprintf("%d parts out of stock", oos)),
 		chk(mm == 0, "values match the schematic", fmt.Sprintf("%d value mismatches", mm)),
-		chk(hasBoard, "board outline "+boardSize(m.boardW, m.boardH), "no board outline"),
-		chk(cli, "kicad-cli ready for gerbers", "kicad-cli not found — gerbers skipped"),
+	}
+	if m.fromBoard() {
+		checklist = append(checklist,
+			chk(hasBoard, "board outline "+boardSize(m.boardW, m.boardH), "no board outline"),
+			chk(cli, "kicad-cli ready for gerbers", "kicad-cli not found — gerbers skipped"),
+		)
+	} else {
+		placements := "no placements — pass a cpl csv for positions.csv"
+		if len(m.placements) > 0 {
+			placements = fmt.Sprintf("%d placements from %s", len(m.placements), filepath.Base(m.cplPath))
+		}
+		checklist = append(checklist,
+			na("no board — bom csv, so no gerbers"),
+			chk(len(m.placements) > 0, placements, placements),
+		)
 	}
 
 	excl := m.excludeSet()
@@ -330,7 +349,10 @@ func (m Model) preflightAndManifest(w int) []string {
 		}
 	}
 	gerbers := badStyle.Render("needs kicad-cli")
-	if cli {
+	switch {
+	case !m.fromBoard():
+		gerbers = dimStyle.Render("n/a — no board")
+	case cli:
 		gerbers = subtleStyle.Render("top · bottom · drill")
 	}
 	man := func(k, v string) string { return dimStyle.Render(pad(k, 14)) + v }

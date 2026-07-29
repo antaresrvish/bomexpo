@@ -77,6 +77,10 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "O":
 		return m.resetRotOverride()
 	case "w":
+		if !m.fromBoard() {
+			m.flash = "nothing to write back — this design came from a csv, not a board"
+			return m, nil
+		}
 		return m, m.saveCmd()
 	case "d":
 		m.openDatasheet(m.cursor)
@@ -554,7 +558,13 @@ func sideCard(sideW int, title string, rows []string) []string {
 }
 
 func (m Model) miniBoard(w, h int) []string {
-	if m.board == nil || m.board.Empty() || h < 2 {
+	// A CSV design has no outline or copper, but a placement file still says
+	// where every part sits, which is worth drawing on its own.
+	drawable := m.board != nil && (!m.board.Empty() || len(m.placements) > 0)
+	if h < 2 || !drawable {
+		if !m.fromBoard() {
+			return []string{dimStyle.Render("no placements — pass a cpl csv")}
+		}
 		return []string{dimStyle.Render("no board outline")}
 	}
 	hl := map[string]bool{}
@@ -579,6 +589,11 @@ var boardSides = []struct{ text, side string }{
 // boardHeader draws the "Board [t]op [b]ot [i]so" row; the selected side is
 // highlighted. boardButtonSpans must stay in sync with its layout.
 func (m Model) boardHeader() string {
+	// Without a board there's nothing for kicad-cli to render, so don't offer
+	// buttons that can only refuse.
+	if !m.fromBoard() {
+		return accentStyle.Render("Placements") + dimStyle.Render("  from cpl csv")
+	}
 	sel := m.boardv.sideOr()
 	b := accentStyle.Render("Board") + " "
 	for _, s := range boardSides {

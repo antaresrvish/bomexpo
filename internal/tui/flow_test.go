@@ -20,9 +20,9 @@ func TestFullFlow(t *testing.T) {
 		t.Skip("set BOMEXPO_PROJ")
 	}
 
-	m := New(proj, "")
+	m := New(Options{Project: proj})
 	m = step(m, tea.WindowSizeMsg{Width: 130, Height: 44})
-	m = step(m, loadProjectCmd(proj)())
+	m = step(m, loadProjectCmd(proj, "")())
 
 	if m.mode != modeTable || len(m.items) == 0 {
 		t.Fatalf("load failed: mode=%d items=%d", m.mode, len(m.items))
@@ -56,7 +56,7 @@ func TestFullFlow(t *testing.T) {
 	mustRender(t, m, "table-after-assign")
 
 	m.mode = modeCheck
-	m.check.setDefault(m.pcbPath)
+	m.check.setDefault(m.sourcePath())
 	mustRender(t, m, "check")
 
 	out := filepath.Join(t.TempDir(), "order.zip")

@@ -15,7 +15,7 @@ import (
 // hand, so the view can be rendered without touching the network.
 func searchModel(t *testing.T, results []part.Part) Model {
 	t.Helper()
-	m := New("", "")
+	m := New(Options{})
 	m.w, m.h = 140, 40
 	m.items = []kicad.Item{{Bases: []string{"C1"}, Value: "100nF", Footprint: "C_0402_1005Metric", Quantity: 1}}
 	m.assigned = make([]*part.Part, 1)

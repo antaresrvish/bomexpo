@@ -19,7 +19,7 @@ func lcscPart(code, mpn string, stock int, usd float64) part.Part {
 
 func partsModel(t *testing.T, results ...part.Part) Model {
 	t.Helper()
-	m := New("", "")
+	m := New(Options{})
 	m.w, m.h = 140, 40
 	m.mode = modeParts
 	m.parts.results = results

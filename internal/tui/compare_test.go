@@ -145,7 +145,7 @@ func TestArgBestNeedsTwoValues(t *testing.T) {
 }
 
 func TestCompareLayoutPagesWhenNarrow(t *testing.T) {
-	m := New("", "")
+	m := New(Options{})
 	m.parts.pinned = []part.Part{{Code: "A"}, {Code: "B"}, {Code: "C"}, {Code: "D"}}
 
 	// wide: everything on one page
@@ -193,7 +193,7 @@ func TestColFirstSlidesMinimally(t *testing.T) {
 
 // A full page must never be left half-blank while there are columns off-screen.
 func TestComparePageAlwaysFull(t *testing.T) {
-	m := New("", "")
+	m := New(Options{})
 	m.parts.pinned = []part.Part{{Code: "A"}, {Code: "B"}, {Code: "C"}}
 	w := cmpLabelW + 2*cmpMinColW
 	for sel := 0; sel < 3; sel++ {
@@ -210,7 +210,7 @@ func TestComparePageAlwaysFull(t *testing.T) {
 }
 
 func TestUnpinFromCompareLeavesWhenTooFew(t *testing.T) {
-	m := New("", "")
+	m := New(Options{})
 	m.w, m.h = 140, 40
 	m.mode = modeCompare
 	m.parts.pinned = cmpFixture()
@@ -232,7 +232,7 @@ func TestUnpinFromCompareLeavesWhenTooFew(t *testing.T) {
 // TestCompareColumnGeometry is the guard that the clickable column spans line up
 // with where the header codes actually render.
 func TestCompareColumnGeometry(t *testing.T) {
-	m := New("", "")
+	m := New(Options{})
 	m.w, m.h = 140, 40
 	m.mode = modeCompare
 	m.parts.pinned = cmpFixture()
@@ -254,7 +254,7 @@ func TestCompareColumnGeometry(t *testing.T) {
 }
 
 func TestViewCompareShowsMarkersAndLegend(t *testing.T) {
-	m := New("", "")
+	m := New(Options{})
 	m.w, m.h = 140, 40
 	m.mode = modeCompare
 	m.parts.pinned = cmpFixture()
@@ -274,7 +274,7 @@ func TestViewCompareShowsMarkersAndLegend(t *testing.T) {
 }
 
 func TestViewCompareRefusesWithOnePart(t *testing.T) {
-	m := New("", "")
+	m := New(Options{})
 	m.w, m.h = 140, 40
 	m.parts.pinned = cmpFixture()[:1]
 	out := stripANSI(m.viewCompare(m.contentW(), m.contentH()))

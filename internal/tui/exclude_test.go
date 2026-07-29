@@ -8,7 +8,7 @@ import (
 )
 
 func TestExclude(t *testing.T) {
-	m := New("", "")
+	m := New(Options{})
 	m.items = []kicad.Item{
 		{Bases: []string{"H1"}, Value: "MountingHole"},
 		{Bases: []string{"R1"}, Value: "10k", LCSC: "C1"},

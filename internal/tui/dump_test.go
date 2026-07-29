@@ -17,9 +17,9 @@ func TestDumpFrames(t *testing.T) {
 		t.Skip("set BOMEXPO_PROJ and BOMEXPO_DUMP")
 	}
 
-	m := New(proj, "")
+	m := New(Options{Project: proj})
 	m = step(m, tea.WindowSizeMsg{Width: 132, Height: 40})
-	m = step(m, loadProjectCmd(proj)())
+	m = step(m, loadProjectCmd(proj, "")())
 
 	// leave a few unassigned to show ○, assign one live via search to show a swap
 	mm, _ := m.openSearch(0)
@@ -35,7 +35,7 @@ func TestDumpFrames(t *testing.T) {
 	dump(t, outDir+"/table.txt", frame(m))
 
 	m.mode = modeCheck
-	m.check.setDefault(m.pcbPath)
+	m.check.setDefault(m.sourcePath())
 	dump(t, outDir+"/check.txt", frame(m))
 }
 

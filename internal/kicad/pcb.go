@@ -341,43 +341,19 @@ func circleSegments(c Point, r float64) []Segment {
 	return segs
 }
 
+// BOM groups the board's footprints into line items, one per distinct value,
+// footprint and DNP flag.
 func (p *Project) BOM() []Item {
-	type key struct {
-		v, f string
-		dnp  bool
-	}
-	order := []key{}
-	groups := map[key]*Item{}
+	rows := make([]Item, 0, len(p.Components))
 	for _, c := range p.Components {
-		k := key{c.Value, c.Footprint, c.DNP}
-		it, ok := groups[k]
-		if !ok {
-			it = &Item{Value: c.Value, Footprint: c.Footprint, DNP: c.DNP, ExcludeBOM: c.ExcludeBOM}
-			groups[k] = it
-			order = append(order, k)
-		} else {
-			it.ExcludeBOM = it.ExcludeBOM && c.ExcludeBOM
-		}
-		it.Bases = append(it.Bases, c.Ref)
-		it.Designators = append(it.Designators, c.Ref)
-		it.Quantity++
-		if it.LCSC == "" && c.LCSC != "" {
-			it.LCSC = c.LCSC
-		}
-		if !it.HasRotOverride && c.HasRotOverride {
-			it.HasRotOverride = true
-			it.RotOverride = c.RotOverride
-		}
+		rows = append(rows, Item{
+			Designators: []string{c.Ref}, Bases: []string{c.Ref}, Quantity: 1,
+			Value: c.Value, Footprint: c.Footprint, LCSC: c.LCSC,
+			DNP: c.DNP, ExcludeBOM: c.ExcludeBOM,
+			RotOverride: c.RotOverride, HasRotOverride: c.HasRotOverride,
+		})
 	}
-	items := make([]Item, 0, len(order))
-	for _, k := range order {
-		it := groups[k]
-		sort.SliceStable(it.Bases, func(i, j int) bool { return refLess(it.Bases[i], it.Bases[j]) })
-		sort.SliceStable(it.Designators, func(i, j int) bool { return refLess(it.Designators[i], it.Designators[j]) })
-		items = append(items, *it)
-	}
-	sort.SliceStable(items, func(i, j int) bool { return refLess(items[i].ID(), items[j].ID()) })
-	return items
+	return mergeItems(rows)
 }
 
 func (p *Project) Placements() []Placement {

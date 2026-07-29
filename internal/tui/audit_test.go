@@ -24,7 +24,7 @@ func TestAutoAssignAudit(t *testing.T) {
 		{Bases: []string{"R9"}, Value: "10m", Footprint: "R_2512_6332Metric", Quantity: 1},
 		{Bases: []string{"L1"}, Value: "3.3uH", Footprint: "IND_IHLP-2525CZ_VIS", Quantity: 1},
 	}
-	m := New("", "")
+	m := New(Options{})
 	m.items = lines
 	for i, it := range lines {
 		msg := m.autoAssignCmd(i)().(autoAssignedMsg)
