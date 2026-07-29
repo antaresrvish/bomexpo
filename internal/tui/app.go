@@ -309,7 +309,7 @@ func (m Model) titleBody() (title, body string) {
 	case modeParts:
 		return "Parts · " + m.srcLabel(), m.viewParts(cw, ch)
 	case modeCompare:
-		return fmt.Sprintf("Compare %d parts", len(m.parts.pinned)), m.viewCompare(cw, ch)
+		return m.compareTitle(), m.viewCompare(cw, ch)
 	case modeCheck:
 		return "Final check & export", m.viewCheck(cw, ch)
 	}

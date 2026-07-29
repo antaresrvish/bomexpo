@@ -10,7 +10,11 @@ import (
 )
 
 const (
-	cmpLabelW = 12
+	// Vendor parameter names are long ("Program Storage Size", "Number of I/O"),
+	// and eliding them to a dozen columns makes two rows indistinguishable.
+	// Budget: the differs mark, the label, and a guaranteed gap before the
+	// first value.
+	cmpLabelW = 22
 	// cmpMinColW is the narrowest a part column can get before paging is better
 	// than squashing.
 	cmpMinColW = 18
@@ -19,8 +23,9 @@ const (
 // compareState is the scroll and selection position in the matrix; the parts
 // themselves live in partsState.pinned.
 type compareState struct {
-	top int // first visible row
-	sel int // focused column, an index into pinned
+	top   int // first visible row
+	sel   int // focused column, an index into pinned
+	first int // leftmost visible column
 }
 
 // cmpRow is one line of the matrix: a label and one value per pinned part.
@@ -188,6 +193,16 @@ func countText(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
+// compareTitle names the panel, saying which columns are on screen when they
+// don't all fit — the matrix rows themselves have no room to spare for it.
+func (m Model) compareTitle() string {
+	n := len(m.parts.pinned)
+	if _, perPage, first := m.compareLayout(m.contentW()); perPage > 0 && perPage < n {
+		return fmt.Sprintf("Compare %d parts · showing %d-%d", n, first+1, first+perPage)
+	}
+	return fmt.Sprintf("Compare %d parts", n)
+}
+
 // compareLayout decides how many columns fit and which slice of them is shown,
 // so a narrow terminal pages instead of squashing.
 func (m Model) compareLayout(w int) (colW, perPage, first int) {
@@ -200,10 +215,23 @@ func (m Model) compareLayout(w int) (colW, perPage, first int) {
 		perPage = n
 	}
 	colW = (w - cmpLabelW) / perPage
-	// keep the focused column on screen
-	sel := clampInt(m.compare.sel, 0, n-1)
-	first = sel - sel%perPage
+	first = colFirst(m.compare.first, clampInt(m.compare.sel, 0, n-1), perPage, n)
 	return colW, perPage, first
+}
+
+// colFirst slides the visible window the least it can to keep the focused column
+// on screen, and never leaves part of the page blank when there's more to show.
+func colFirst(first, sel, perPage, n int) int {
+	if perPage >= n {
+		return 0
+	}
+	if sel < first {
+		first = sel
+	}
+	if sel >= first+perPage {
+		first = sel - perPage + 1
+	}
+	return clampInt(first, 0, n-perPage)
 }
 
 func (m Model) compareRowsVisible() int {
@@ -241,8 +269,10 @@ func (m Model) updateCompareKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.compare.top = max(0, len(rows)-vis)
 	case "left", "h":
 		m.compare.sel = max(0, m.compare.sel-1)
+		_, _, m.compare.first = m.compareLayout(m.contentW())
 	case "right", "l":
 		m.compare.sel = min(n-1, m.compare.sel+1)
+		_, _, m.compare.first = m.compareLayout(m.contentW())
 	case "x":
 		return m.unpinSelected()
 	case "d":
@@ -323,10 +353,6 @@ func (m Model) viewCompare(w, h int) string {
 		codes += accentStyle.Render(code)
 		meta += libCell(p.Lib, sub)
 	}
-	if len(ps) > perPage {
-		meta += dimStyle.Render(fmt.Sprintf(" %d-%d of %d", first+1, last, len(ps)))
-	}
-
 	rows := compareRows(ps)
 	vis := m.compareRowsVisible()
 	top := clampInt(m.compare.top, 0, max(0, len(rows)-vis))
@@ -338,23 +364,28 @@ func (m Model) viewCompare(w, h int) string {
 			lines = append(lines, borderStyle.Render(strings.Repeat("─", w)))
 			continue
 		}
-		mark, label := " ", pad(r.label, cmpLabelW-1)
+		mark, label := " ", pad(trunc(r.label, cmpLabelW-2), cmpLabelW-2)
 		if r.differ {
 			mark, label = warnStyle.Render("!"), warnStyle.Render(label)
 		} else {
 			label = dimStyle.Render(label)
 		}
-		line := mark + label
+		line := mark + label + " "
 		for j := first; j < last; j++ {
-			cell := pad(trunc(r.vals[j], colW-1), colW)
-			switch {
-			case j == r.best:
-				line += okStyle.Render(cell)
-			case r.differ:
-				line += subtleStyle.Render(cell)
-			default:
-				line += dimStyle.Render(cell)
+			if j == r.best {
+				// The tick goes right after the value, not at the cell's right
+				// edge where it would read as belonging to the next column. And
+				// it's a glyph, not just colour, so a monochrome terminal still
+				// shows the winner.
+				line += okStyle.Render(pad(trunc(r.vals[j], colW-3)+" ▴", colW))
+				continue
 			}
+			cell := pad(trunc(r.vals[j], colW-1), colW)
+			if r.differ {
+				line += subtleStyle.Render(cell)
+				continue
+			}
+			line += dimStyle.Render(cell)
 		}
 		lines = append(lines, padRender(line, w))
 	}
@@ -363,6 +394,6 @@ func (m Model) viewCompare(w, h int) string {
 		lines = append(lines, "")
 	}
 	legend := warnStyle.Render("!") + dimStyle.Render(" differs   ") +
-		okStyle.Render("green") + dimStyle.Render(" best   ←→ column · x unpin · d datasheet · esc back")
+		okStyle.Render("▴") + dimStyle.Render(" best   ←→ column · x unpin · d datasheet · esc back")
 	return strings.Join(lines, "\n") + "\n" + padRender(legend, w)
 }
