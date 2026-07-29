@@ -45,6 +45,10 @@ type component struct {
 	Describe  string `json:"describe"`
 	Datasheet string `json:"dataManualUrl"`
 	Stock     int    `json:"stockCount"`
+	// firstSortName is the leaf category and secondSortName the group above it,
+	// the same two levels LCSC returns under different names.
+	Category  string `json:"firstSortName"`
+	ParentCat string `json:"secondSortName"`
 	MinBuy    int    `json:"minPurchaseNum"`
 
 	LibraryType string `json:"componentLibraryType"`
@@ -81,6 +85,8 @@ func (w component) toPart() part.Part {
 		Package:   w.Package,
 		Desc:      w.Describe,
 		Datasheet: w.Datasheet,
+		Category:  strings.TrimSpace(w.Category),
+		ParentCat: strings.TrimSpace(w.ParentCat),
 		Stock:     w.Stock,
 		MinBuy:    w.MinBuy,
 		Lib:       w.lib(),

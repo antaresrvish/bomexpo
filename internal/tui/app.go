@@ -217,6 +217,9 @@ func (m Model) routeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case modeSearch:
 		return m.updateSearchKey(msg)
 	case modeParts:
+		if m.cat.open {
+			return m.updateCatKey(msg)
+		}
 		return m.updatePartsKey(msg)
 	case modeCompare:
 		return m.updateCompareKey(msg)
@@ -240,6 +243,9 @@ func (m Model) routeMouse(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 	case modeSearch:
 		return m.mouseSearch(ms, click, wheel)
 	case modeParts:
+		if m.cat.open {
+			return m.mouseCat(ms, click, wheel)
+		}
 		return m.mouseParts(ms, click, wheel)
 	case modeCompare:
 		return m.mouseCompare(ms, click, wheel)
@@ -258,6 +264,7 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	// do; every move after that goes through here.
 	m.load.field.Blur()
 	m.parts.field.Blur()
+	m.cat.open = false
 	m.check.setPane(paneIssues)
 
 	switch md {
@@ -342,6 +349,9 @@ func (m Model) titleBody() (title, body string) {
 	case modeSearch:
 		return "Search " + m.srcLabel(), m.viewSearch(cw, ch)
 	case modeParts:
+		if m.cat.open {
+			return "Categories · " + m.srcLabel(), m.viewCategories(cw, ch)
+		}
 		return "Parts · " + m.srcLabel(), m.viewParts(cw, ch)
 	case modeCompare:
 		return m.compareTitle(), m.viewCompare(cw, ch)
@@ -540,6 +550,15 @@ func (m Model) helpLine(budget int) string {
 		hints = [][2]string{{"↑↓", "results"}, {"enter", "pick"}, {"d", "datasheet"},
 			{"/", "search"}, {"esc", "back"}}
 	case modeParts:
+		if m.cat.open {
+			if m.parts.field.Focused() {
+				hints = [][2]string{{"type", "search"}, {"tab", "the boxes"}, {"esc", "back"}}
+				break
+			}
+			hints = [][2]string{{"↑↓←→", "pick"}, {"enter", "narrow to it"},
+				{"/", "search"}, {"tab", "the results"}, {"esc", "back"}}
+			break
+		}
 		if m.parts.field.Focused() {
 			hints = [][2]string{{"↑↓", "results"}, {"enter", "pin"}, {"^d", "datasheet"},
 				tabHint(false)}

@@ -51,6 +51,9 @@ type partsState struct {
 
 	inStockOnly bool
 	basicOnly   bool
+	// cat keeps only one leaf category, chosen from the category panel. Empty
+	// means every category.
+	cat string
 
 	pinned []part.Part
 }
@@ -59,13 +62,30 @@ func newPartsState() partsState {
 	return partsState{field: newField("› ", "search any part by value, mpn or code…", 46)}
 }
 
-func (s partsState) filtered() []part.Part {
+// preCat is the results with every filter but the category applied. The category
+// panel groups over this, so picking a category doesn't make the other boxes
+// disappear.
+func (s partsState) preCat() []part.Part {
 	if !s.inStockOnly {
 		return s.results
 	}
 	var out []part.Part
 	for _, p := range s.results {
 		if p.InStock() {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (s partsState) filtered() []part.Part {
+	rows := s.preCat()
+	if s.cat == "" {
+		return rows
+	}
+	var out []part.Part
+	for _, p := range rows {
+		if strings.EqualFold(strings.TrimSpace(p.Category), s.cat) {
 			out = append(out, p)
 		}
 	}
@@ -80,6 +100,16 @@ func (s partsState) pinAt(source, code string) int {
 		}
 	}
 	return -1
+}
+
+// partsCount says what the row count is out of. A category filter only sees the
+// rows we fetched, so saying "of 5000" there would claim more than it does.
+func (m Model) partsCount(shown int) string {
+	s := m.parts
+	if s.cat != "" {
+		return fmt.Sprintf("%d of the %d fetched", shown, len(s.results))
+	}
+	return fmt.Sprintf("%d of %d", shown, s.total)
 }
 
 func (m Model) partsRows() int {
@@ -146,6 +176,7 @@ func (m Model) updatePartsDebounce(msg partsDebounceMsg) (tea.Model, tea.Cmd) {
 // server-side filter all call for.
 func (m Model) researchParts() (tea.Model, tea.Cmd) {
 	m.parts.cursor, m.parts.top = 0, 0
+	m.parts.cat = "" // a new query has its own categories; the old pick may not be among them
 	kw := strings.TrimSpace(m.parts.field.Value())
 	if kw == "" {
 		m.parts.results, m.parts.total = nil, 0
@@ -274,8 +305,8 @@ func (m Model) updatePartsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "/", "i":
-		m.parts.field.Focus()
-		return m, nil
+		// the search opens onto the categories, with the query focused
+		return m.openCategories()
 	case "p", " ":
 		return m.togglePin()
 	case "c":
@@ -408,7 +439,7 @@ func (m Model) viewParts(w, h int) string {
 	case len(s.results) == 0:
 		status = dimStyle.Render("type to search " + m.srcLabel() + " — no board needed")
 	default:
-		status = subtleStyle.Render(fmt.Sprintf("%d of %d", len(f), s.total)) + "   " + m.partsChips()
+		status = subtleStyle.Render(m.partsCount(len(f))) + "   " + m.partsChips()
 	}
 
 	c := m.resultCols(w)
@@ -474,6 +505,9 @@ func (m Model) partsChips() string {
 		return dimStyle.Render("[" + label + "]")
 	}
 	chips := []string{chip(s.inStockOnly, "in-stock")}
+	if s.cat != "" {
+		chips = append(chips, accentStyle.Render("["+trunc(s.cat, 30)+"]"))
+	}
 	keys := []string{"s"}
 	if src := m.src(); src != nil && src.Caps().BasicFilter {
 		chips = append(chips, chip(s.basicOnly, "basic"))
@@ -482,10 +516,11 @@ func (m Model) partsChips() string {
 	if len(m.srcs) > 1 {
 		keys = append(keys, "o")
 	}
+	keys = append(keys, "/ categories")
 	hint := "  " + strings.Join(keys, " ")
 	if s.field.Focused() {
 		// the letters are text right now, so name the forms that still work
-		hint = "  ^" + strings.Join(keys, " ^")
+		hint = "  ^" + strings.Join(keys[:len(keys)-1], " ^")
 	}
 	return strings.Join(chips, " ") + dimStyle.Render(hint)
 }

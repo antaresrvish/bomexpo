@@ -81,6 +81,7 @@ type Model struct {
 	load    loadState
 	search  searchState
 	parts   partsState
+	cat     catState
 	compare compareState
 	boardv  boardState
 	check   checkState

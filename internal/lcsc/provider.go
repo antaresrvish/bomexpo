@@ -65,6 +65,8 @@ func toPart(p Part) part.Part {
 		Package:   strings.TrimSpace(p.Package),
 		Desc:      desc,
 		Datasheet: p.Datasheet,
+		Category:  strings.TrimSpace(p.Category),
+		ParentCat: strings.TrimSpace(p.ParentCat),
 		Stock:     p.Stock,
 		MinBuy:    p.MinBuy,
 	}

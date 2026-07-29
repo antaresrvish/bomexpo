@@ -281,6 +281,11 @@ func TestBottomBarFitsTheTerminal(t *testing.T) {
 			return mm.(Model)
 		}},
 		{"parts-list", func(m Model) Model { mm, _ := m.gotoTab(modeParts); return mm.(Model) }},
+		{"categories", func(m Model) Model {
+			mm, _ := m.gotoTab(modeParts)
+			mm, _ = mm.(Model).openCategories()
+			return mm.(Model)
+		}},
 		{"parts", func(m Model) Model { mm, _ := m.gotoTab(modeParts); return queryFocus(mm.(Model)) }},
 		{"compare", func(m Model) Model { mm, _ := m.gotoTab(modeCompare); return mm.(Model) }},
 		{"nets", func(m Model) Model { mm, _ := m.openNetPicker(); return mm.(Model) }},

@@ -59,6 +59,12 @@ type Part struct {
 	Package   string
 	Desc      string
 	Datasheet string
+	// Category is the source's own leaf category and ParentCat the group it sits
+	// in — "Multilayer Ceramic Capacitors MLCC - SMD/SMT" under "Capacitors".
+	// Neither source will search inside a category, but both label every result
+	// with one, which is enough to group and narrow a result set.
+	Category  string
+	ParentCat string
 	Stock     int
 	MinBuy    int // minimum order quantity
 	Prices    []Price
