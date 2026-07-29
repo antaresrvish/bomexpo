@@ -239,10 +239,9 @@ func (m Model) viewCheck(w, h int) string {
 		pricing = append(pricing, dimStyle.Render(fmt.Sprintf("  %d parts hit a supplier minimum — +$%.2f at 1 board", n, extra)))
 	}
 
-	// The pricing table is narrow, so the board goes beside it rather than
-	// leaving half the page empty.
 	lines = append(lines, "")
-	lines = append(lines, twoCol(pricing, m.checkBoard(w-w/2-2), w/2)...)
+	lines = append(lines, pricing...)
+	lines = append(lines, "", m.boardStatus())
 
 	if b, pref, ext, known := m.libBreakdown(); known > 0 {
 		lines = append(lines, "", accentStyle.Render("Assembly library")+
@@ -312,7 +311,39 @@ func (m Model) viewCheck(w, h int) string {
 	lines = append(lines,
 		labelStyle.Render("Output  ")+m.check.out.View(),
 		dimStyle.Render("enter → order-ready zip (BOM + CPL + Gerbers) · * = some parts unassigned"))
-	return strings.Join(lines, "\n")
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+
+	// The board fills the page behind all of that, showing through wherever the
+	// text leaves a gap.
+	return strings.Join(overlay(lines, m.boardBackdrop(w, h), w), "\n")
+}
+
+// boardStatus is a one-line note about the backdrop: how big the board is, how
+// much of it you're looking at, and how to zoom.
+func (m Model) boardStatus() string {
+	if m.board == nil || (m.board.Empty() && len(m.placements) == 0) {
+		if !m.fromBoard() {
+			return dimStyle.Render("no board behind this — a bom csv has no geometry")
+		}
+		return dimStyle.Render("no board outline to draw")
+	}
+	what := "board"
+	if !m.fromBoard() {
+		what = "placements"
+	}
+	out := accentStyle.Render("Backdrop") + dimStyle.Render("  "+what)
+	if m.boardW > 0 {
+		out += dimStyle.Render(" " + boardSize(m.boardW, m.boardH))
+	}
+	if n := len(m.placements); n > 0 {
+		out += dimStyle.Render(fmt.Sprintf(" · %d placed", n))
+	}
+	if m.boardv.zoom > zoomMin {
+		out += warnStyle.Render(fmt.Sprintf("  %.1f×", m.boardv.zoom))
+	}
+	return out + dimStyle.Render("  ^↑↓ zoom · shift+arrows pan")
 }
 
 func rotFamily(fp string) string {
@@ -320,35 +351,6 @@ func rotFamily(fp string) string {
 		return fp[:i]
 	}
 	return fp
-}
-
-// checkBoard draws the whole board for the order review. It lives here rather
-// than in the Components sidebar because it needs the room to be readable.
-func (m Model) checkBoard(w int) []string {
-	const h = 9
-	head := m.boardHeader()
-	if m.boardW > 0 {
-		head += dimStyle.Render(boardSize(m.boardW, m.boardH))
-	}
-	if m.boardv.zoom > zoomMin {
-		head += warnStyle.Render(fmt.Sprintf("  %.1f×", m.boardv.zoom))
-	}
-
-	body := m.miniBoard(w, h)
-	out := append([]string{head}, body...)
-	if len(body) > 1 {
-		excl := m.excludeSet()
-		n := 0
-		for _, p := range m.placements {
-			if excl[p.Designator] {
-				n++
-			}
-		}
-		if n > 0 {
-			out = append(out, dimStyle.Render(fmt.Sprintf("  %d excluded parts are still drawn", n)))
-		}
-	}
-	return out
 }
 
 // preflightAndManifest renders the pre-flight checklist and the order-package

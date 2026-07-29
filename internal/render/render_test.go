@@ -2,14 +2,11 @@ package render
 
 import (
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 
 	"bomexpo/internal/kicad"
 )
-
-var ansi = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 func TestRenderReal(t *testing.T) {
 	gbr := os.Getenv("BOMEXPO_GBR")
@@ -29,7 +26,7 @@ func TestRenderReal(t *testing.T) {
 	if out == "" {
 		t.Fatal("empty render")
 	}
-	plain := strings.ReplaceAll(ansi.ReplaceAllString(out, ""), "▀", "#")
+	plain := strings.ReplaceAll(shape(out), "▀", "#")
 	for _, line := range strings.Split(plain, "\n") {
 		t.Log(line)
 	}

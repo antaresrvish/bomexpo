@@ -106,29 +106,17 @@ func TestCheckPageCarriesTheBoard(t *testing.T) {
 	if !strings.Contains(out, "Volume pricing") {
 		t.Error("the pricing table should still be there")
 	}
-	// A CSV design has placements but no board, so the panel is titled for what
-	// it's actually drawing. Either way it shares the row with the pricing.
-	var row string
-	for _, ln := range strings.Split(out, "\n") {
-		if strings.Contains(ln, "Volume pricing") {
-			row = ln
-			break
-		}
-	}
-	if row == "" {
-		t.Fatal("no pricing row found")
-	}
-	if !strings.Contains(row, "Placements") {
-		t.Errorf("the board panel should sit beside the pricing, not below: %q", row)
-	}
+	// the board is the page's backdrop, so its blocks show between the text
 	if !strings.Contains(out, "▀") {
-		t.Error("the board panel should have drawn something")
+		t.Error("the backdrop should have drawn something")
 	}
-
-	// with a real board behind it the panel says so and offers the render keys
-	m.pcbPath = "/tmp/x.kicad_pcb"
-	if got := stripANSI(strings.Join(m.checkBoard(50), "\n")); !strings.Contains(got, "[t]op") {
-		t.Errorf("a board design should offer the render sides: %q", got)
+	// and a line says what's behind there and how to move it
+	if !strings.Contains(out, "Backdrop") {
+		t.Errorf("want a backdrop note:\n%s", out)
+	}
+	// a CSV design is drawn from placements, and says so
+	if !strings.Contains(stripANSI(m.boardStatus()), "placements") {
+		t.Errorf("board status = %q, want it to name what it drew", stripANSI(m.boardStatus()))
 	}
 }
 

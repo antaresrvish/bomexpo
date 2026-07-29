@@ -144,7 +144,7 @@ func TestNetViewRendersCountsAndFitsHeight(t *testing.T) {
 // The board lives on the Check page now, where the output path owns the
 // keyboard, so its view is driven with modifiers.
 func TestBoardZoomAndPan(t *testing.T) {
-	m := netModel(t)
+	m, _ := csvModel(t, true) // has placements, so there's a backdrop to move
 	m.mode = modeCheck
 	if m.boardv.zoom != 1 {
 		t.Fatalf("zoom starts at %g, want 1", m.boardv.zoom)
@@ -191,8 +191,8 @@ func TestBoardZoomAndPan(t *testing.T) {
 
 	// the level is shown, so you know you aren't seeing the whole board
 	m = zoomIn(m)
-	if got := stripANSI(strings.Join(m.checkBoard(50), "\n")); !strings.Contains(got, "×") {
-		t.Errorf("check board = %q, want a zoom indicator", got)
+	if got := stripANSI(m.boardStatus()); !strings.Contains(got, "×") {
+		t.Errorf("board status = %q, want a zoom indicator", got)
 	}
 
 	// and the output path is untouched by all of that
