@@ -492,8 +492,9 @@ func (m Model) helpLine() string {
 		hints = [][2]string{{"tab", "complete"}, {"enter", "open"}, {"ctrl+c", "quit"}}
 	case modeTable:
 		if m.filter.open {
-			hints = [][2]string{{"type", "filter"}, {"↑↓", "rows"}, {"enter", "keep"}, {"esc", "clear"},
-				{"net: ref: val: fp: lcsc: lib: st:", "keys"}}
+			// the dropdown shows the keys, so the hint is about driving it
+			hints = [][2]string{{"type", "narrow"}, {"↑↓", "pick"}, {"tab", "complete"},
+				{"enter", "apply"}, {"esc", "clear"}}
 			break
 		}
 		hints = [][2]string{{"enter", "assign"}, {"a", "auto"}, {"/", "filter"}, {"t/b/i", "3D"}, {"o", "rotate"}, {"w", "save"}, {"tab", "switch"}}

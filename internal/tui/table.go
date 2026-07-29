@@ -169,6 +169,14 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		return m, nil
 	}
 
+	// a click in the completion dropdown picks that value
+	if click && left {
+		if top, n := m.suggestClickRows(); n > 0 && ms.Y >= top && ms.Y < top+n {
+			m.filter.sug = ms.Y - top
+			return m.acceptSuggestion(), nil
+		}
+	}
+
 	if !click { // motion: continue an in-progress scrollbar drag, or end it
 		if !left {
 			m.drag = dragNone
@@ -366,7 +374,18 @@ func (m Model) tableBlock(c cols, tableW, h int) []string {
 		lines = append(lines, spaces(tableW))
 	}
 	lines = append(lines, hScrollRow(tableW, full, tableW, hoff))
-	return lines[:h]
+	lines = lines[:h]
+
+	// The completion dropdown hangs off the query field, covering the column
+	// header the way any dropdown covers what's beneath it.
+	if box := m.suggestBox(tableW); len(box) > 0 {
+		for i, ln := range box {
+			if row := 1 + i; row < len(lines)-1 {
+				lines[row] = padRender(ln, tableW)
+			}
+		}
+	}
+	return lines
 }
 
 func hScrollRow(tableW, total, vis, hoff int) string {

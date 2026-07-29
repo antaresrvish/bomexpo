@@ -175,15 +175,18 @@ func anyContains(hay []string, needle string) bool {
 	return false
 }
 
-// filterState is the filter bar: the query being typed and the one in force.
+// filterState is the filter bar: the query being typed, the one in force, and
+// where the completion dropdown is pointing.
 type filterState struct {
 	field textfield
 	open  bool // the bar has the keyboard
 	f     filter
+	sug   int // highlighted suggestion
 }
 
 func newFilterState() filterState {
-	return filterState{field: newField("", "net:GND  val:100nF  st:unassigned  -st:excluded", 60)}
+	// no long placeholder: the dropdown below shows what's on offer
+	return filterState{field: newField("", "filter…", 60)}
 }
 
 // visible reports whether the bar takes a row: while typing, and afterwards so a
@@ -207,6 +210,7 @@ func (m Model) matchedRefs() map[string]bool {
 
 func (m Model) openFilter() (tea.Model, tea.Cmd) {
 	m.filter.open = true
+	m.filter.sug = 0
 	m.filter.field.Focus()
 	return m, nil
 }
@@ -224,21 +228,34 @@ func (m Model) closeFilter(clear bool) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	sug := m.suggestions()
+
 	switch msg.String() {
 	case "esc":
 		return m.closeFilter(true)
 	case "enter":
+		// enter finishes the word if it's still a partial, otherwise it's done
+		if len(sug) > 0 && !tokenIsExact(m.filter.field.Value(), sug) {
+			return m.acceptSuggestion(), nil
+		}
 		return m.closeFilter(false)
-	// let the list stay navigable while the query has focus
-	case "up":
-		m.cursor = max(0, m.cursor-1)
-		m.clampScroll()
+	case "tab":
+		if len(sug) > 0 {
+			return m.acceptSuggestion(), nil
+		}
 		return m, nil
-	case "down":
-		m.cursor = min(m.rows()-1, m.cursor+1)
-		m.clampScroll()
+	case "down", "ctrl+n":
+		if n := shownSuggestions(sug); n > 0 {
+			m.filter.sug = (m.filter.sug + 1) % n
+		}
+		return m, nil
+	case "up", "ctrl+p":
+		if n := shownSuggestions(sug); n > 0 {
+			m.filter.sug = (m.filter.sug - 1 + n) % n
+		}
 		return m, nil
 	}
+
 	before := m.filter.field.Value()
 	m.filter.field.Update(msg)
 	if m.filter.field.Value() == before {
@@ -246,8 +263,26 @@ func (m Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	// filtering is local, so there's nothing to wait for — apply as you type
 	m.filter.f = parseFilter(m.filter.field.Value())
+	m.filter.sug = 0
 	m.cursor, m.top = 0, 0
 	return m.reindex(), nil
+}
+
+func shownSuggestions(sug []suggestion) int { return min(len(sug), sugMax) }
+
+// tokenIsExact reports whether the word being typed is already one of the
+// offered values, so enter means "done" rather than "complete this".
+func tokenIsExact(q string, sug []suggestion) bool {
+	tok := lastToken(q)
+	if tok == "" {
+		return false
+	}
+	for _, s := range sug {
+		if strings.EqualFold(strings.TrimSuffix(s.value, ":"), strings.TrimSuffix(tok, ":")) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) filterBar(w int) string {
