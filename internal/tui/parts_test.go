@@ -23,15 +23,15 @@ func partsModel(t *testing.T, results ...part.Part) Model {
 	m.w, m.h = 140, 40
 	m.parts.results = results
 	m.parts.total = len(results)
-	mm, _ := m.gotoTab(modeParts) // enters with the query focused, like the app does
+	mm, _ := m.gotoTab(modeParts) // enters with the list focused, like the app does
 	m = mm.(Model)
 	return m
 }
 
-// listFocus takes the keyboard off the query, the state where letters are
-// commands.
-func listFocus(m Model) Model {
-	mm, _ := m.updatePartsKey(key("tab"))
+// queryFocus hands the keyboard to the search query, the state where letters are
+// text rather than commands.
+func queryFocus(m Model) Model {
+	mm, _ := m.updatePartsKey(key("/"))
 	return mm.(Model)
 }
 
@@ -210,15 +210,15 @@ func TestPartsInStockFilter(t *testing.T) {
 	if got := len(m.parts.filtered()); got != 2 {
 		t.Fatalf("unfiltered = %d, want 2", got)
 	}
-	// ^s works while typing, and a plain s once the list has focus
-	for _, k := range []tea.KeyPressMsg{{Code: 's', Mod: tea.ModCtrl}, key("tab"), key("s")} {
+	// a plain s with the list focused, and ^s while typing — both must toggle
+	for _, k := range []tea.KeyPressMsg{key("s"), key("/"), {Code: 's', Mod: tea.ModCtrl}} {
 		mm, _ := m.updatePartsKey(k)
 		m = mm.(Model)
 	}
 	if got := len(m.parts.filtered()); got != 2 {
 		t.Fatalf("two toggles should cancel out, got %d rows", got)
 	}
-	mm, _ := m.updatePartsKey(key("s"))
+	mm, _ := m.updatePartsKey(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	m = mm.(Model)
 	f := m.parts.filtered()
 	if len(f) != 1 || f[0].Code != "C2" {
@@ -227,7 +227,7 @@ func TestPartsInStockFilter(t *testing.T) {
 }
 
 func TestPartsListFocusTreatsLettersAsCommands(t *testing.T) {
-	m := listFocus(partsModel(t, lcscPart("C1", "A", 100, 0.01)))
+	m := partsModel(t, lcscPart("C1", "A", 100, 0.01))
 	for _, k := range []string{"p"} { // pin without a modifier
 		mm, _ := m.updatePartsKey(key(k))
 		m = mm.(Model)
@@ -246,7 +246,7 @@ func TestPartsListFocusTreatsLettersAsCommands(t *testing.T) {
 }
 
 func TestPartsTypingDoesNotTriggerActions(t *testing.T) {
-	m := partsModel(t)
+	m := queryFocus(partsModel(t))
 	// plain letters must reach the search field, not fire commands
 	for _, r := range "c1525 x" {
 		mm, _ := m.updatePartsKey(tea.KeyPressMsg{Text: string(r), Code: r})

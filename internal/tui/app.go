@@ -254,15 +254,16 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	switch md {
 	case modeCheck:
 		m.check.setDefault(m.sourcePath())
-		// deliberately not focused: the page's own keys work until you press e
-		m.check.out.Blur()
+		m.check.out.Blur() // same rule: the page keeps the keys until you ask for the field
 		m.mode = md
 		return m, nil
 	case modeLoad:
 		m.mode = md
 		return m, m.load.focusCmd()
 	case modeParts:
-		m.parts.field.Focus()
+		// Arriving at a tab never takes the keyboard: 1-5 and [ ] are printable, so
+		// a focused query would swallow them. Press / or tab to start typing.
+		m.parts.field.Blur()
 		m.mode = md
 		return m, nil
 	case modeCompare:
@@ -532,22 +533,18 @@ func (m Model) helpLine(budget int) string {
 				tabHint(false), {"esc", "back"}}
 			break
 		}
-		hints = [][2]string{{"↑↓", "results"}, {"enter", "pick"}, {"f/t/s", "filters"}, {"d", "datasheet"}}
-		if len(m.srcs) > 1 {
-			hints = append(hints, [2]string{"o", "source"})
-		}
-		hints = append(hints, [2]string{"/", "search"}, [2]string{"esc", "back"})
+		// the filter and source letters are printed next to their own chips, so
+		// repeating them here would just crowd out the navigation keys
+		hints = [][2]string{{"↑↓", "results"}, {"enter", "pick"}, {"d", "datasheet"},
+			{"/", "search"}, {"esc", "back"}}
 	case modeParts:
 		if m.parts.field.Focused() {
 			hints = [][2]string{{"↑↓", "results"}, {"enter", "pin"}, {"^d", "datasheet"},
 				tabHint(false)}
 			break
 		}
-		hints = [][2]string{{"↑↓", "results"}, {"p", "pin"}, {"c", "compare"}, {"d", "datasheet"}, {"s", "stock"}}
-		if len(m.srcs) > 1 {
-			hints = append(hints, [2]string{"o", "source"})
-		}
-		hints = append(hints, [2]string{"/", "search"}, tabHint(true))
+		hints = [][2]string{{"↑↓", "results"}, {"p", "pin"}, {"c", "compare"}, {"d", "datasheet"},
+			{"/", "search"}, tabHint(true)}
 	case modeCompare:
 		hints = [][2]string{{"tab", "card"}, {"↑↓", "scroll"}, {"x", "unpin"}, {"d", "datasheet"},
 			tabHint(true), {"esc", "back"}}

@@ -20,8 +20,11 @@ func TestTabLeavesEveryTextField(t *testing.T) {
 		send    func(Model, tea.KeyPressMsg) Model
 	}{
 		{
-			name:    "parts",
-			enter:   func(m Model) Model { mm, _ := m.gotoTab(modeParts); return mm.(Model) },
+			name: "parts",
+			enter: func(m Model) Model {
+				mm, _ := m.gotoTab(modeParts)
+				return queryFocus(mm.(Model)) // / is the way in, tab is the way out
+			},
 			focused: func(m Model) bool { return m.parts.field.Focused() },
 			send:    func(m Model, k tea.KeyPressMsg) Model { mm, _ := m.updatePartsKey(k); return mm.(Model) },
 		},
@@ -67,7 +70,7 @@ func TestTabLeavesEveryTextField(t *testing.T) {
 func TestTabSwitchKeysDoNotStealFromAField(t *testing.T) {
 	m := netModel(t)
 	mm, _ := m.gotoTab(modeParts)
-	m = mm.(Model)
+	m = queryFocus(mm.(Model))
 	for _, r := range "[3]" {
 		mm, _ := m.updatePartsKey(key(string(r)))
 		m = mm.(Model)
@@ -79,10 +82,32 @@ func TestTabSwitchKeysDoNotStealFromAField(t *testing.T) {
 		t.Errorf("field = %q, want %q", got, "[3]")
 	}
 
-	m = listFocus(m)
-	mm, _ = m.updatePartsKey(key("]"))
+	mm, _ = m.updatePartsKey(key("tab")) // hand the list the keyboard
+	mm, _ = mm.(Model).updatePartsKey(key("]"))
 	if mm.(Model).mode == modeParts {
 		t.Error("] should move to the next tab once the list has focus")
+	}
+}
+
+// Landing on a tab must leave the list in charge: 1-5 and [ ] are printable, so a
+// focused field would eat them and tab switching would silently stop working.
+func TestArrivingAtATabLeavesTheListInCharge(t *testing.T) {
+	base := netModel(t)
+	base.parts.pinned = cmpFixture()
+	for _, md := range []mode{modeTable, modeParts, modeCheck, modeCompare} {
+		mm, _ := base.gotoTab(md)
+		m := mm.(Model)
+		if m.mode != md {
+			t.Fatalf("gotoTab(%v) landed on %v", md, m.mode)
+		}
+		if m.parts.field.Focused() || m.check.out.Focused() || m.filter.open {
+			t.Errorf("%v took the keyboard on entry", md)
+		}
+		// so a digit gets straight through to tab switching
+		mm, _ = m.routeKey(key("2"))
+		if mm.(Model).mode != modeTable {
+			t.Errorf("from %v, pressing 2 went to %v", md, mm.(Model).mode)
+		}
 	}
 }
 
@@ -161,7 +186,7 @@ func TestLoadEnterOpensThePickedFile(t *testing.T) {
 func TestSameKeyMeansTextOrCommandByFocus(t *testing.T) {
 	m := partsModel(t, lcscPart("C1", "A", 0, 0.01), lcscPart("C2", "B", 500, 0.02))
 
-	mm, _ := m.updatePartsKey(key("s"))
+	mm, _ := queryFocus(m).updatePartsKey(key("s"))
 	typed := mm.(Model)
 	if typed.parts.field.Value() != "s" {
 		t.Errorf("with the query focused, s should type: field = %q", typed.parts.field.Value())
@@ -170,7 +195,7 @@ func TestSameKeyMeansTextOrCommandByFocus(t *testing.T) {
 		t.Error("typing must not have flipped the stock filter")
 	}
 
-	mm, _ = listFocus(m).updatePartsKey(key("s"))
+	mm, _ = m.updatePartsKey(key("s"))
 	cmd := mm.(Model)
 	if !cmd.parts.inStockOnly {
 		t.Error("with the list focused, s should flip the stock filter")
@@ -199,8 +224,8 @@ func TestBottomBarFitsTheTerminal(t *testing.T) {
 			mm, _ = mm.(Model).updateSearchKey(key("tab"))
 			return mm.(Model)
 		}},
-		{"parts", func(m Model) Model { mm, _ := m.gotoTab(modeParts); return mm.(Model) }},
-		{"parts-list", func(m Model) Model { mm, _ := m.gotoTab(modeParts); return listFocus(mm.(Model)) }},
+		{"parts-list", func(m Model) Model { mm, _ := m.gotoTab(modeParts); return mm.(Model) }},
+		{"parts", func(m Model) Model { mm, _ := m.gotoTab(modeParts); return queryFocus(mm.(Model)) }},
 		{"compare", func(m Model) Model { mm, _ := m.gotoTab(modeCompare); return mm.(Model) }},
 		{"nets", func(m Model) Model { mm, _ := m.openNetPicker(); return mm.(Model) }},
 		{"nets-list", func(m Model) Model {

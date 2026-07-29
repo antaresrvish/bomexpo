@@ -402,6 +402,9 @@ func (m Model) viewParts(w, h int) string {
 	switch {
 	case s.loading:
 		status = m.spin.View() + " searching…"
+	case len(s.results) == 0 && !s.field.Focused():
+		status = dimStyle.Render("press ") + accentStyle.Render("/") +
+			dimStyle.Render(" to search "+m.srcLabel()+" — no board needed")
 	case len(s.results) == 0:
 		status = dimStyle.Render("type to search " + m.srcLabel() + " — no board needed")
 	default:

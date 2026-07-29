@@ -60,6 +60,9 @@ again. Once a list has focus the letters are the commands (`p` pin, `d` datashee
 in-stock only, `/` back to typing), and `[` `]` or `1`–`5` switch tabs. Arrow keys always
 drive the list, focused or not.
 
+Landing on a tab never takes the keyboard, so tab switching keeps working; press `/` or
+`tab` when you want to type.
+
 
 ## What it does
 
