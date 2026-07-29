@@ -174,9 +174,12 @@ func TestBoardZoomAndPan(t *testing.T) {
 	if m.boardv.zoom <= 1 {
 		t.Errorf("+ should zoom in, got %g", m.boardv.zoom)
 	}
+	// Assert the direction on screen, not the sign of the field: panX is added to
+	// every point the renderer draws, so "pan right" is a negative panX.
+	before, _ := markAt(t, m.boardv)
 	m = panRight(m)
-	if m.boardv.panX <= 0 {
-		t.Errorf("panX = %g, want it to move right", m.boardv.panX)
+	if after, _ := markAt(t, m.boardv); after >= before {
+		t.Errorf("right moved the drawing from column %.1f to %.1f, want it to slide left", before, after)
 	}
 
 	// zoom is capped
