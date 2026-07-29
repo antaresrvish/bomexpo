@@ -43,6 +43,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case searchDebounceMsg:
 		return m.updateSearchDebounce(msg)
 
+	case partsDebounceMsg:
+		return m.updatePartsDebounce(msg)
+
+	case partsDoneMsg:
+		return m.updatePartsDone(msg)
+
+	case pinDetailMsg:
+		return m.updatePinDetail(msg)
+
 	case projectLoadedMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -186,6 +195,10 @@ func (m Model) routeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updateTable(msg)
 	case modeSearch:
 		return m.updateSearchKey(msg)
+	case modeParts:
+		return m.updatePartsKey(msg)
+	case modeCompare:
+		return m.updateCompareKey(msg)
 	case modeCheck:
 		return m.updateCheck(msg)
 	}
@@ -203,6 +216,10 @@ func (m Model) routeMouse(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		return m.mouseTable(ms, click, wheel)
 	case modeSearch:
 		return m.mouseSearch(ms, click, wheel)
+	case modeParts:
+		return m.mouseParts(ms, click, wheel)
+	case modeCompare:
+		return m.mouseCompare(ms, click, wheel)
 	case modeCheck:
 		return m.mouseCheck(ms, click, wheel)
 	}
@@ -219,16 +236,29 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	case modeLoad:
 		m.mode = md
 		return m, m.load.focusCmd()
+	case modeParts:
+		m.parts.field.Focus()
+		m.mode = md
+		return m, nil
+	case modeCompare:
+		if len(m.parts.pinned) < 2 {
+			m.flash = "pin at least two parts to compare"
+			return m, nil
+		}
+		m.compare.sel = clampInt(m.compare.sel, 0, len(m.parts.pinned)-1)
+		m.mode = md
+		return m, nil
 	}
 	m.mode = md
 	return m, nil
 }
 
 func (m Model) cycleTab(dir int) (tea.Model, tea.Cmd) {
+	tabs := m.tabs()
 	cur := 1
 	want := m.mode
 	if want == modeSearch {
-		want = modeTable
+		want = modeTable // search is a detour off Components, not a tab
 	}
 	for i, t := range tabs {
 		if t.mode == want {
@@ -255,19 +285,8 @@ func (m Model) View() tea.View {
 	if m.w == 0 {
 		m.w, m.h = 110, 34
 	}
-	cw, ch := m.contentW(), m.contentH()
-
-	var title, body string
-	switch m.mode {
-	case modeLoad:
-		title, body = "Open project", m.viewLoad(cw, ch)
-	case modeTable:
-		title, body = "Components"+projSuffix(m.name), m.viewTable(cw, ch)
-	case modeSearch:
-		title, body = "Search "+m.srcLabel(), m.viewSearch(cw, ch)
-	case modeCheck:
-		title, body = "Final check & export", m.viewCheck(cw, ch)
-	}
+	ch := m.contentH()
+	title, body := m.titleBody()
 
 	screen := lipgloss.JoinVertical(lipgloss.Left,
 		m.tabBar(), panelBox(title, body, m.w, ch), m.bottomBar())
@@ -275,6 +294,26 @@ func (m Model) View() tea.View {
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	return v
+}
+
+// titleBody renders the current mode's panel. It's the single place that maps a
+// mode to its view — View and the test harnesses all go through here so a new
+// mode can't be half-wired.
+func (m Model) titleBody() (title, body string) {
+	cw, ch := m.contentW(), m.contentH()
+	switch m.mode {
+	case modeTable:
+		return "Components" + projSuffix(m.name), m.viewTable(cw, ch)
+	case modeSearch:
+		return "Search " + m.srcLabel(), m.viewSearch(cw, ch)
+	case modeParts:
+		return "Parts · " + m.srcLabel(), m.viewParts(cw, ch)
+	case modeCompare:
+		return fmt.Sprintf("Compare %d parts", len(m.parts.pinned)), m.viewCompare(cw, ch)
+	case modeCheck:
+		return "Final check & export", m.viewCheck(cw, ch)
+	}
+	return "Open project", m.viewLoad(cw, ch)
 }
 
 func projSuffix(name string) string {
@@ -287,7 +326,7 @@ func projSuffix(name string) string {
 func (m Model) tabBar() string {
 	brand := tabBrand.Render("bomexpo")
 	var segs []string
-	for _, t := range tabs {
+	for _, t := range m.tabs() {
 		active := t.mode == m.mode || (m.mode == modeSearch && t.mode == modeTable)
 		st := tabInactive
 		if active {
@@ -320,7 +359,7 @@ func (m Model) tabBar() string {
 func (m Model) tabStart() int {
 	bw := lipgloss.Width(tabBrand.Render("bomexpo"))
 	var segs []string
-	for _, t := range tabs {
+	for _, t := range m.tabs() {
 		segs = append(segs, tabInactive.Render(t.label))
 	}
 	leftPad := (m.w-lipgloss.Width(strings.Join(segs, "")))/2 - bw
@@ -339,7 +378,7 @@ func warnBadge(n int) string {
 
 func (m Model) tabAtX(x int) (mode, bool) {
 	cur := m.tabStart()
-	for _, t := range tabs {
+	for _, t := range m.tabs() {
 		w := lipgloss.Width(tabInactive.Render(t.label))
 		if x >= cur && x < cur+w {
 			return t.mode, true
@@ -438,6 +477,14 @@ func (m Model) helpLine() string {
 			hints = append(hints, [2]string{"^o", "source"})
 		}
 		hints = append(hints, [2]string{"esc", "back"})
+	case modeParts:
+		hints = [][2]string{{"type", "search"}, {"↑↓", "results"}, {"enter", "pin"}, {"^d", "datasheet"}}
+		if len(m.srcs) > 1 {
+			hints = append(hints, [2]string{"^o", "source"})
+		}
+		hints = append(hints, [2]string{"tab", "switch"})
+	case modeCompare:
+		hints = [][2]string{{"←→", "column"}, {"↑↓", "scroll"}, {"x", "unpin"}, {"d", "datasheet"}, {"esc", "back"}}
 	case modeCheck:
 		hints = [][2]string{{"click", "go to part"}, {"enter", "export"}, {"tab", "switch"}, {"esc", "back"}}
 	}

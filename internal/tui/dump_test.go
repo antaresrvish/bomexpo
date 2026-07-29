@@ -40,20 +40,8 @@ func TestDumpFrames(t *testing.T) {
 }
 
 func frame(m Model) string {
-	w, h := m.contentW(), m.contentH()
-	var body string
-	title := ""
-	switch m.mode {
-	case modeTable:
-		title, body = "Components", m.viewTable(w, h)
-	case modeSearch:
-		title, body = "Search LCSC", m.viewSearch(w, h)
-	case modeCheck:
-		title, body = "Final check & export", m.viewCheck(w, h)
-	default:
-		title, body = "Open project", m.viewLoad(w, h)
-	}
-	return stripANSI(m.tabBar() + "\n" + panelBox(title, body, m.w, h) + "\n" + m.bottomBar())
+	title, body := m.titleBody()
+	return stripANSI(m.tabBar() + "\n" + panelBox(title, body, m.w, m.contentH()) + "\n" + m.bottomBar())
 }
 
 func dump(t *testing.T, path, content string) {

@@ -75,18 +75,7 @@ func step(m Model, msg tea.Msg) Model {
 func mustRender(t *testing.T, m Model, name string) {
 	t.Helper()
 	_ = m.View()
-	w, h := m.contentW(), m.contentH()
-	var s string
-	switch m.mode {
-	case modeTable:
-		s = m.viewTable(w, h)
-	case modeSearch:
-		s = m.viewSearch(w, h)
-	case modeCheck:
-		s = m.viewCheck(w, h)
-	default:
-		s = m.viewLoad(w, h)
-	}
+	_, s := m.titleBody()
 	if strings.TrimSpace(stripANSI(s)) == "" {
 		t.Fatalf("%s render empty", name)
 	}

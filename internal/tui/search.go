@@ -14,6 +14,9 @@ import (
 
 const searchDataTop = 7 // tab(1)+border(1)+title,input,status,colhead,rule(5)
 
+// keystrokeSettle is how long typing pauses before a query goes out.
+const keystrokeSettle = 300 * time.Millisecond
+
 type searchDebounceMsg struct{ seq int }
 
 type searchState struct {
@@ -86,7 +89,7 @@ func (s searchState) filtered() []part.Part {
 }
 
 func searchDebounceCmd(seq int) tea.Cmd {
-	return tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg {
+	return tea.Tick(keystrokeSettle, func(time.Time) tea.Msg {
 		return searchDebounceMsg{seq: seq}
 	})
 }

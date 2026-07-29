@@ -34,10 +34,12 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.cycleTab(1)
 	case "shift+tab":
 		return m.cycleTab(-1)
-	case "1":
-		return m.gotoTab(modeLoad)
-	case "3":
-		return m.gotoTab(modeCheck)
+	case "1", "3", "4", "5":
+		// tab by number; 2 is Components itself, so it stays unbound
+		if md, ok := m.tabMode(int(msg.String()[0] - '0')); ok {
+			return m.gotoTab(md)
+		}
+		return m, nil
 	case "up", "k":
 		m.cursor = max(0, m.cursor-1)
 	case "down", "j":

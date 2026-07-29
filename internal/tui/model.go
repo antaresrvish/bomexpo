@@ -23,18 +23,38 @@ const (
 	modeLoad mode = iota
 	modeTable
 	modeSearch
-	modeBoard
+	modeParts
+	modeCompare
 	modeCheck
-	modeOverview
 )
 
-var tabs = []struct {
+type tabDef struct {
 	mode  mode
 	label string
-}{
-	{modeLoad, "Load"},
-	{modeTable, "Components"},
-	{modeCheck, "Check"},
+}
+
+// tabs is dynamic: Compare only earns a tab once there's something to compare,
+// which keeps it discoverable without stealing a key from the search field.
+func (m Model) tabs() []tabDef {
+	t := []tabDef{
+		{modeLoad, "Load"},
+		{modeTable, "Components"},
+		{modeParts, "Parts"},
+		{modeCheck, "Check"},
+	}
+	if n := len(m.parts.pinned); n >= 2 {
+		t = append(t, tabDef{modeCompare, fmt.Sprintf("Compare %d", n)})
+	}
+	return t
+}
+
+// tabMode maps a 1-based tab number to its mode, for the digit shortcuts.
+func (m Model) tabMode(n int) (mode, bool) {
+	t := m.tabs()
+	if n < 1 || n > len(t) {
+		return modeLoad, false
+	}
+	return t[n-1].mode, true
 }
 
 const (
@@ -55,10 +75,12 @@ type Model struct {
 	spin    spinner.Model
 	loading bool
 
-	load   loadState
-	search searchState
-	boardv boardState
-	check  checkState
+	load    loadState
+	search  searchState
+	parts   partsState
+	compare compareState
+	boardv  boardState
+	check   checkState
 
 	name       string
 	pcbPath    string
@@ -116,6 +138,7 @@ func New(project, srcWant string) Model {
 	}
 	m.load = newLoadState(project)
 	m.search = newSearchState()
+	m.parts = newPartsState()
 	m.check = newCheckState()
 	return m
 }
