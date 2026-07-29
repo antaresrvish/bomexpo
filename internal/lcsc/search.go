@@ -47,7 +47,7 @@ func (c *Client) Refresh(code string) (Part, error) {
 }
 
 func (c *Client) detail(code string, force bool) (Part, error) {
-	raw, fresh, ok := c.cacheGet(code)
+	raw, fresh, ok := c.w.CacheGet(code)
 	if ok && fresh && !force {
 		var p Part
 		if json.Unmarshal(raw, &p) == nil {
@@ -64,7 +64,7 @@ func (c *Client) detail(code string, force bool) (Part, error) {
 		}
 		return Part{}, err
 	}
-	c.cachePut(code, fetched)
+	c.w.CachePut(code, fetched)
 	var p Part
 	if len(fetched) > 0 {
 		err = json.Unmarshal(fetched, &p)
