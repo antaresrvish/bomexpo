@@ -44,8 +44,9 @@ func (m Model) tabs() []tabDef {
 		{modeParts, "Parts"},
 		{modeCheck, "Check"},
 	}
-	if n := len(m.parts.pinned); n >= 2 {
-		t = append(t, tabDef{modeCompare, fmt.Sprintf("Compare %d", n)})
+	if len(m.parts.pinned) >= 2 {
+		// no count here — the panel title already says how many are pinned
+		t = append(t, tabDef{modeCompare, "Compare"})
 	}
 	return t
 }

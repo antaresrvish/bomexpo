@@ -173,7 +173,7 @@ func TestCompareTabAppearsWithTwoPins(t *testing.T) {
 	m.parts.cursor = 1
 	mm, _ = m.togglePin()
 	m = mm.(Model)
-	if got, want := labels(), "Load,Components,Parts,Check,Compare 2"; got != want {
+	if got, want := labels(), "Load,Components,Parts,Check,Compare"; got != want {
 		t.Errorf("tabs = %s, want %s", got, want)
 	}
 
