@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -21,8 +22,13 @@ import (
 	"bomexpo/internal/part"
 )
 
-// probes are broad enough to reach most of a distributor's catalogue in one pass.
-// Each returns a page of parts whose labels are what we keep.
+// probes open the crawl. A broad word returns a page dominated by one category, so
+// a second round searches the parent names round one found — that reaches the
+// siblings, taking the harvest from ~94 leaves to ~258.
+//
+// It is still a crawl over a search box, so it will not find every category. What
+// closes the gap is use: Add persists the categories of every search you run, so a
+// category the crawl missed joins the list the first time you search into it.
 var probes = []string{
 	"capacitor", "resistor", "inductor", "connector", "microcontroller",
 	"led", "diode", "transistor", "regulator", "crystal",
@@ -87,8 +93,30 @@ func Load(p part.Provider) ([]Cat, error) {
 	return Merge(cached, cats), nil
 }
 
-// Harvest runs the probe searches and returns the categories they mention.
+// Harvest crawls the source for its categories: the probe words, then the parent
+// categories those turned up.
 func Harvest(p part.Provider) ([]Cat, error) {
+	seen, err := sweep(p, probes)
+	if len(seen) == 0 {
+		return nil, err
+	}
+
+	// Round two: a parent's name as the keyword returns a spread of its children,
+	// which one broad word never does.
+	var parents []string
+	done := map[string]bool{}
+	for _, c := range seen {
+		if c.Parent != "" && c.Parent != "other" && !done[c.Parent] {
+			done[c.Parent] = true
+			parents = append(parents, c.Parent)
+		}
+	}
+	more, _ := sweep(p, parents)
+	return Merge(seen, more), nil
+}
+
+// sweep searches every keyword and returns the categories they mention.
+func sweep(p part.Provider, words []string) ([]Cat, error) {
 	var (
 		mu   sync.Mutex
 		seen []Cat
@@ -96,7 +124,7 @@ func Harvest(p part.Provider) ([]Cat, error) {
 	)
 	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
-	for _, kw := range probes {
+	for _, kw := range words {
 		wg.Add(1)
 		go func(kw string) {
 			defer wg.Done()
@@ -123,6 +151,25 @@ func Harvest(p part.Provider) ([]Cat, error) {
 		return nil, errs[0]
 	}
 	return dedupe(seen), nil
+}
+
+// Add folds a result set's categories into the cached list and keeps them. This is
+// how the crawl's blind spots close: search into a category it missed and it is
+// there from then on.
+func Add(id string, ps []part.Part) []Cat {
+	fresh := FromParts(ps)
+	if len(fresh) == 0 {
+		return nil
+	}
+	cached, _, err := read(id)
+	if err != nil && len(cached) == 0 {
+		return fresh // nothing cached yet; Load will write the crawl soon enough
+	}
+	merged := Merge(cached, fresh)
+	if len(merged) > len(cached) {
+		write(id, merged)
+	}
+	return merged
 }
 
 // Merge folds extra categories into a list, dropping duplicates. It's how a
@@ -216,4 +263,30 @@ func write(id string, cats []Cat) {
 		return
 	}
 	_ = os.WriteFile(p, b, 0o644)
+}
+
+var paren = regexp.MustCompile(`\s*\([^)]*\)`)
+
+// Keyword turns a category name into something a keyword search can use, since
+// neither vendor will take a category id. Measured against LCSC: the full name
+// finds nothing for several categories, and dropping the parenthesised notes, the
+// qualifier after a dash and the packaging words fixes most of them —
+// "Chip Resistor - Surface Mount" goes from 27 in-category hits per page to 89,
+// "Inductors (SMD)" from 3 to 13.
+//
+// It is a heuristic over a search box, not a category query: some categories still
+// come back thin or empty, which is why the caller pages and says so when nothing
+// matches.
+func Keyword(category string) string {
+	s := paren.ReplaceAllString(category, "")
+	if i := strings.Index(s, " - "); i > 0 {
+		s = s[:i]
+	}
+	for _, w := range []string{"SMD/SMT", "SMD", "SMT", "Surface Mount"} {
+		s = strings.ReplaceAll(s, w, "")
+	}
+	if out := strings.Join(strings.Fields(s), " "); out != "" {
+		return out
+	}
+	return strings.TrimSpace(category)
 }

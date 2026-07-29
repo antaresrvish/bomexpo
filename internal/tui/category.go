@@ -293,7 +293,16 @@ func (m Model) applyCategory(c catCell) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.parts.cursor, m.parts.top = 0, 0
-	return m.closeCategories()
+	mm, _ := m.closeCategories()
+	m = mm.(Model)
+	// Picking a category is itself a request to see what's in it, even with nothing
+	// typed. Clearing one with nothing typed has nothing to search, so the results
+	// already on screen stay rather than being wiped.
+	if strings.TrimSpace(m.parts.field.Value()) == "" && m.parts.cat == "" {
+		m.parts.clamp(m.partsRows())
+		return m, nil
+	}
+	return m.researchParts()
 }
 
 // moveCat walks the grid. Left and right step through the boxes in order, up and
@@ -487,13 +496,18 @@ func (m Model) catContent(w, h int) []string {
 	case m.cat.loading && len(cells) == 0:
 		status = m.spin.View() + " reading the category list from " + m.srcLabel() + "…"
 	case len(cells) == 0 && m.cat.field.Value() != "":
-		status = dimStyle.Render("no category matches that — clear the filter to see them all")
+		status = dimStyle.Render("nothing here matches — esc, then search for it and it gets added")
 	case len(cells) == 0:
 		status = dimStyle.Render("no category list yet — search first and it fills in")
 	default:
 		status = subtleStyle.Render(plural(len(catPickable(cells))-1, "category", "categories"))
-		if m.cat.loading {
+		switch {
+		case m.cat.loading:
 			status += dimStyle.Render("   " + m.spin.View() + " loading more")
+		case m.cat.field.Value() == "":
+			// The list is crawled, not published, so it has blind spots. Say so
+			// rather than letting a missing category look like it doesn't exist.
+			status += dimStyle.Render("   not in here? search for it and it gets added")
 		}
 	}
 

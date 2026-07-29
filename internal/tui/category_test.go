@@ -464,3 +464,45 @@ func TestPartsSaysWhenTheCategoryMatchedNothing(t *testing.T) {
 		t.Error("it should say how to get out of it")
 	}
 }
+
+// Picking a category with nothing typed browses it, rather than leaving an empty
+// table: the category's own name becomes the keyword.
+func TestPickingACategoryWithNoQuerySearchesIt(t *testing.T) {
+	m := catModel(t)
+	m.parts.field.SetValue("")
+	cells := m.catCells()
+	var usb catCell
+	for _, c := range cells {
+		if c.label == "USB Connectors" {
+			usb = c
+		}
+	}
+	mm, cmd := m.applyCategory(usb)
+	m = mm.(Model)
+	if cmd == nil {
+		t.Fatal("picking a category with nothing typed should start a search")
+	}
+	if !m.parts.loading {
+		t.Error("it should show as loading")
+	}
+	if m.parts.cat != "USB Connectors" {
+		t.Errorf("category = %q", m.parts.cat)
+	}
+}
+
+// Clearing the category with nothing typed has nothing to search, so what's on
+// screen stays instead of being wiped.
+func TestClearingACategoryWithNoQueryKeepsTheResults(t *testing.T) {
+	m := catModel(t)
+	m.parts.field.SetValue("")
+	m.parts.cat = "USB Connectors"
+	before := len(m.parts.results)
+	mm, cmd := m.applyCategory(catCell{label: "all categories", all: true})
+	m = mm.(Model)
+	if cmd != nil {
+		t.Error("there is nothing to search, so no command should go out")
+	}
+	if len(m.parts.results) != before {
+		t.Errorf("%d results left of %d — clearing the category wiped them", len(m.parts.results), before)
+	}
+}

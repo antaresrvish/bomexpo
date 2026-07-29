@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"bomexpo/internal/part"
+	"bomexpo/internal/taxonomy"
 )
 
 // partsDataTop is the first result row: tab(1)+border(1)+title,input,status,
@@ -92,6 +93,24 @@ func (s partsState) filtered() []part.Part {
 	return out
 }
 
+// rows is what the table shows: the pinned parts first, then the search results
+// with the pinned ones left out so nothing appears twice. Pins ignore the filters
+// and outlive the query — they're the shortlist you're working with, and you have
+// to be able to reach one to unpin it even when the search that found it is gone.
+func (s partsState) rows() []part.Part {
+	out := append([]part.Part(nil), s.pinned...)
+	for _, p := range s.filtered() {
+		if s.pinAt(p.Source, p.Code) < 0 {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// resultsFrom is the row index the search results start at, which is where the
+// view draws a rule between the shortlist and everything else.
+func (s partsState) resultsFrom() int { return len(s.pinned) }
+
 // pinAt finds a pinned part by source and code, or -1.
 func (s partsState) pinAt(source, code string) int {
 	for i, p := range s.pinned {
@@ -114,6 +133,9 @@ func (m Model) partsCount(shown int) string {
 
 func (m Model) partsRows() int {
 	n := m.contentH() - 6 // header block + the pinned footer line
+	if len(m.parts.pinned) > 0 {
+		n-- // the rule between the shortlist and the results takes a line
+	}
 	if n < 1 {
 		n = 1
 	}
@@ -121,7 +143,7 @@ func (m Model) partsRows() int {
 }
 
 func (s *partsState) clamp(vis int) {
-	f := s.filtered()
+	f := s.rows()
 	if len(f) == 0 {
 		s.cursor, s.top = 0, 0
 		return
@@ -142,16 +164,50 @@ func partsDebounceCmd(seq int) tea.Cmd {
 	})
 }
 
+// catPageLimit and catRowsWanted bound the paging done for a category filter:
+// enough pages to fill a screen, few enough not to hammer the vendor.
+const (
+	catPageLimit  = 4
+	catRowsWanted = 40
+)
+
 func (m Model) partsSearchCmd(token int, keyword string) tea.Cmd {
 	src := m.src()
 	basicOnly := m.parts.basicOnly
+	cat := m.parts.cat
 	return func() tea.Msg {
 		if src == nil {
 			return partsDoneMsg{token: token, err: errNoSource}
 		}
-		res, err := src.Search(part.Query{Keyword: keyword, Size: 100, BasicOnly: basicOnly})
-		return partsDoneMsg{token: token, res: res, err: err}
+		q := part.Query{Keyword: keyword, Size: 100, BasicOnly: basicOnly}
+		res, err := src.Search(q)
+		if err != nil || cat == "" {
+			return partsDoneMsg{token: token, res: res, err: err}
+		}
+		// A category is a filter over what comes back, so a keyword whose first
+		// page holds few of that category needs more pages before the table looks
+		// like anything.
+		for page := 2; page <= catPageLimit && countIn(res.Items, cat) < catRowsWanted; page++ {
+			q.Page = page
+			more, err := src.Search(q)
+			if err != nil || len(more.Items) == 0 {
+				break
+			}
+			res.Items = append(res.Items, more.Items...)
+		}
+		return partsDoneMsg{token: token, res: res}
 	}
+}
+
+// countIn is how many parts sit in a category.
+func countIn(ps []part.Part, cat string) int {
+	n := 0
+	for _, p := range ps {
+		if strings.EqualFold(strings.TrimSpace(p.Category), cat) {
+			n++
+		}
+	}
+	return n
 }
 
 func (m Model) pinDetailCmd(source, code string) tea.Cmd {
@@ -174,9 +230,16 @@ func (m Model) updatePartsDebounce(msg partsDebounceMsg) (tea.Model, tea.Cmd) {
 
 // researchParts re-runs the Parts query, which a new keyword, a new source or a
 // server-side filter all call for.
+//
+// With a category picked and nothing typed it browses the category instead of
+// showing an empty table: neither vendor takes a category id, so the category's
+// own name becomes the keyword and the filter does the rest.
 func (m Model) researchParts() (tea.Model, tea.Cmd) {
 	m.parts.cursor, m.parts.top = 0, 0
 	kw := strings.TrimSpace(m.parts.field.Value())
+	if kw == "" && m.parts.cat != "" {
+		kw = taxonomy.Keyword(m.parts.cat)
+	}
 	if kw == "" {
 		m.parts.results, m.parts.total = nil, 0
 		return m, nil
@@ -199,6 +262,13 @@ func (m Model) updatePartsDone(msg partsDoneMsg) (tea.Model, tea.Cmd) {
 	m.parts.results = msg.res.Items
 	m.parts.total = msg.res.Total
 	m.parts.cursor, m.parts.top = 0, 0
+	// Every search teaches the category list something: the crawl that builds it
+	// can't reach every corner, but a search that lands in one can.
+	if grown := taxonomy.Add(m.srcID(), msg.res.Items); len(grown) > len(m.cat.cats) {
+		m.cat.cats = grown
+	} else {
+		m.cat.cats = taxonomy.Merge(m.cat.cats, taxonomy.FromParts(msg.res.Items))
+	}
 	return m, nil
 }
 
@@ -217,7 +287,7 @@ func (m Model) updatePinDetail(msg pinDetailMsg) (tea.Model, tea.Cmd) {
 // togglePin pins or unpins the row under the cursor, fetching the full record
 // on a pin.
 func (m Model) togglePin() (tea.Model, tea.Cmd) {
-	f := m.parts.filtered()
+	f := m.parts.rows()
 	if m.parts.cursor < 0 || m.parts.cursor >= len(f) {
 		return m, nil
 	}
@@ -271,7 +341,7 @@ func (m Model) updatePartsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.togglePin()
 	case "down", "ctrl+n":
-		m.parts.cursor = min(len(m.parts.filtered())-1, m.parts.cursor+1)
+		m.parts.cursor = min(len(m.parts.rows())-1, m.parts.cursor+1)
 		m.parts.clamp(m.partsRows())
 		return m, nil
 	case "up", "ctrl+p":
@@ -325,13 +395,13 @@ func (m Model) updatePartsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.parts.cursor = 0
 		m.parts.clamp(m.partsRows())
 	case "G", "end":
-		m.parts.cursor = max(0, len(m.parts.filtered())-1)
+		m.parts.cursor = max(0, len(m.parts.rows())-1)
 		m.parts.clamp(m.partsRows())
 	case "pgup":
 		m.parts.cursor = max(0, m.parts.cursor-m.partsRows())
 		m.parts.clamp(m.partsRows())
 	case "pgdown":
-		m.parts.cursor = min(len(m.parts.filtered())-1, m.parts.cursor+m.partsRows())
+		m.parts.cursor = min(len(m.parts.rows())-1, m.parts.cursor+m.partsRows())
 		m.parts.clamp(m.partsRows())
 	}
 	return m, nil
@@ -354,7 +424,7 @@ func (m Model) togglePartsStock() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) openPartsDatasheet() (tea.Model, tea.Cmd) {
-	f := m.parts.filtered()
+	f := m.parts.rows()
 	if m.parts.cursor >= 0 && m.parts.cursor < len(f) && f[m.parts.cursor].Datasheet != "" {
 		openExternal(f[m.parts.cursor].Datasheet)
 	}
@@ -430,6 +500,7 @@ func (m Model) viewParts(w, h int) string {
 		title += spaces(gap) + chips
 	}
 
+	rows := s.rows()
 	f := s.filtered()
 	var status string
 	switch {
@@ -452,9 +523,14 @@ func (m Model) viewParts(w, h int) string {
 	lines := []string{title, query, status, partHead(c, w), borderStyle.Render(strings.Repeat("─", w))}
 
 	vis := m.partsRows()
-	end := min(len(f), s.top+vis)
+	end := min(len(rows), s.top+vis)
 	for i := s.top; i < end; i++ {
-		p := f[i]
+		// a rule between the shortlist and the search results, so the pinned block
+		// reads as its own thing rather than as the first few hits
+		if i == s.resultsFrom() && i > 0 {
+			lines = append(lines, borderStyle.Render(strings.Repeat("╌", w)))
+		}
+		p := rows[i]
 		cursor, pinned := i == s.cursor, s.pinAt(p.Source, p.Code) >= 0
 		marker := "  "
 		switch {
@@ -467,7 +543,7 @@ func (m Model) viewParts(w, h int) string {
 		}
 		lines = append(lines, partRow(p, c, w, marker, cursor))
 	}
-	if len(f) == 0 && !s.loading && len(s.results) > 0 {
+	if len(rows) == 0 && !s.loading && len(s.results) > 0 {
 		lines = append(lines, dimStyle.Render("  nothing in stock matches — toggle ^s"))
 	}
 

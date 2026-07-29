@@ -278,3 +278,94 @@ func TestViewPartsRendersAndMarksPins(t *testing.T) {
 		t.Error("the footer should list what's pinned")
 	}
 }
+
+// The shortlist outlives the search that found it: a pinned part stays a row you
+// can reach, so it can be unpinned even after the query is gone.
+func TestPinnedPartsSurviveAnEmptiedSearch(t *testing.T) {
+	m := partsModel(t, lcscPart("C1", "AAA", 100, 0.01), lcscPart("C2", "BBB", 200, 0.02))
+	for _, i := range []int{0, 1} {
+		m.parts.cursor = i
+		mm, _ := m.togglePin()
+		m = mm.(Model)
+	}
+
+	m.parts.field.SetValue("")
+	mm, _ := m.researchParts()
+	m = mm.(Model)
+	if len(m.parts.results) != 0 {
+		t.Fatalf("an empty query should clear the results, got %d", len(m.parts.results))
+	}
+	rows := m.parts.rows()
+	if len(rows) != 2 {
+		t.Fatalf("%d rows with an empty search, want the 2 pinned", len(rows))
+	}
+	out := stripANSI(m.viewParts(m.contentW(), m.contentH()))
+	for _, code := range []string{"C1", "C2"} {
+		if !strings.Contains(out, code) {
+			t.Errorf("%s is not on screen, so it cannot be unpinned:\n%s", code, out)
+		}
+	}
+
+	// and it can be removed from there
+	m.parts.cursor = 0
+	mm, _ = m.togglePin()
+	if got := len(mm.(Model).parts.pinned); got != 1 {
+		t.Errorf("unpinning left %d pins, want 1", got)
+	}
+}
+
+// A pinned part appears once, in the shortlist, even when the search that's running
+// also returns it.
+func TestPinnedPartIsNotListedTwice(t *testing.T) {
+	m := partsModel(t, lcscPart("C1", "AAA", 100, 0.01), lcscPart("C2", "BBB", 200, 0.02))
+	m.parts.cursor = 1
+	mm, _ := m.togglePin()
+	m = mm.(Model)
+
+	rows := m.parts.rows()
+	if len(rows) != 2 {
+		t.Fatalf("%d rows, want 2", len(rows))
+	}
+	if rows[0].Code != "C2" {
+		t.Errorf("the pinned part should lead, got %s", rows[0].Code)
+	}
+	seen := map[string]int{}
+	for _, p := range rows {
+		seen[p.Code]++
+	}
+	for code, n := range seen {
+		if n > 1 {
+			t.Errorf("%s appears %d times", code, n)
+		}
+	}
+}
+
+// The filters are for the search results; a pin is a decision and stays put.
+func TestFiltersDoNotDropPinnedParts(t *testing.T) {
+	m := partsModel(t, lcscPart("C1", "AAA", 0, 0.01), lcscPart("C2", "BBB", 200, 0.02))
+	m.parts.cursor = 0 // out of stock
+	mm, _ := m.togglePin()
+	m = mm.(Model)
+
+	m.parts.inStockOnly = true
+	if got := len(m.parts.filtered()); got != 1 {
+		t.Fatalf("the in-stock filter kept %d results, want 1", got)
+	}
+	rows := m.parts.rows()
+	if len(rows) != 2 || rows[0].Code != "C1" {
+		t.Errorf("rows = %v, want the out-of-stock pin to survive", codesOf(rows))
+	}
+
+	m.parts.cat = "nothing matches this"
+	if rows := m.parts.rows(); len(rows) != 1 || rows[0].Code != "C1" {
+		t.Errorf("a category filter dropped the pin: %v", codesOf(rows))
+	}
+}
+
+func codesOf(ps []part.Part) []string {
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = p.Code
+	}
+	return out
+}

@@ -71,8 +71,71 @@ func TestHarvestCollectsEveryCategoryOnce(t *testing.T) {
 			t.Errorf("index %d = %+v, want %+v", i, got[i], want[i])
 		}
 	}
-	if len(f.calls) != len(probes) {
-		t.Errorf("%d searches for %d probes", len(f.calls), len(probes))
+	// round one is the probe words, round two the parents they turned up
+	if len(f.calls) != len(probes)+3 {
+		t.Errorf("%d searches, want %d probes plus 3 parents", len(f.calls), len(probes))
+	}
+	for _, want := range []string{"Capacitors", "Connectors", "Resistors"} {
+		found := false
+		for _, c := range f.calls {
+			if c == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("round two never searched the parent %q", want)
+		}
+	}
+}
+
+// A category the crawl missed joins the list the first time a search lands in it,
+// and stays there.
+func TestAddKeepsCategoriesFromASearch(t *testing.T) {
+	SetCacheDir(t.TempDir())
+	t.Cleanup(func() { cacheDir = defaultCacheDir })
+
+	f := newFake()
+	crawled, err := Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range crawled {
+		if c.Leaf == "Tantalum Polymer" {
+			t.Fatal("the fixture already knows this category")
+		}
+	}
+
+	got := Add("fake", []part.Part{cat("Capacitors", "Tantalum Polymer")})
+	if len(got) != len(crawled)+1 {
+		t.Fatalf("Add gave %d categories, want %d", len(got), len(crawled)+1)
+	}
+	// and it survives a reload, so it was really written down
+	back, err := Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range back {
+		if c.Leaf == "Tantalum Polymer" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the added category did not survive a reload")
+	}
+}
+
+// Adding nothing new must not rewrite the cache, so a search you have run before
+// costs no disk.
+func TestAddIgnoresWhatItAlreadyKnows(t *testing.T) {
+	SetCacheDir(t.TempDir())
+	t.Cleanup(func() { cacheDir = defaultCacheDir })
+
+	f := newFake()
+	before, _ := Load(f)
+	got := Add("fake", []part.Part{cat("Capacitors", "MLCC - SMD")})
+	if len(got) != len(before) {
+		t.Errorf("Add changed the list from %d to %d for a known category", len(before), len(got))
 	}
 }
 
