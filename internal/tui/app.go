@@ -264,7 +264,7 @@ func (m Model) View() tea.View {
 	case modeTable:
 		title, body = "Components"+projSuffix(m.name), m.viewTable(cw, ch)
 	case modeSearch:
-		title, body = "Search LCSC", m.viewSearch(cw, ch)
+		title, body = "Search "+m.srcLabel(), m.viewSearch(cw, ch)
 	case modeCheck:
 		title, body = "Final check & export", m.viewCheck(cw, ch)
 	}
@@ -433,7 +433,11 @@ func (m Model) helpLine() string {
 	case modeTable:
 		hints = [][2]string{{"enter", "assign"}, {"a", "auto"}, {"t/b/i", "3D"}, {"o", "rotate"}, {"w", "save"}, {"←→", "scroll"}, {"tab", "switch"}}
 	case modeSearch:
-		hints = [][2]string{{"type", "search"}, {"↑↓", "results"}, {"enter", "pick"}, {"^f/^t/^s", "filters"}, {"esc", "back"}}
+		hints = [][2]string{{"type", "search"}, {"↑↓", "results"}, {"enter", "pick"}, {"^f/^t/^s", "filters"}}
+		if len(m.srcs) > 1 {
+			hints = append(hints, [2]string{"^o", "source"})
+		}
+		hints = append(hints, [2]string{"esc", "back"})
 	case modeCheck:
 		hints = [][2]string{{"click", "go to part"}, {"enter", "export"}, {"tab", "switch"}, {"esc", "back"}}
 	}

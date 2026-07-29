@@ -375,6 +375,55 @@ func (m Model) dnpCount() int {
 	return n
 }
 
+// libOf is the assembly library standing of the part assigned to line i, or
+// LibUnknown when nothing is assigned or the source doesn't report it.
+func (m Model) libOf(i int) part.LibKind {
+	if i >= 0 && i < len(m.assigned) {
+		if p := m.assigned[i]; p != nil {
+			return p.Lib
+		}
+	}
+	return part.LibUnknown
+}
+
+// extCount is how many active line items use an extended-library part, each of
+// which adds a per-part setup fee to an assembly order.
+func (m Model) extCount() int {
+	n := 0
+	for i := range m.items {
+		if i < len(m.excluded) && m.excluded[i] {
+			continue
+		}
+		if m.libOf(i) == part.LibExtended {
+			n++
+		}
+	}
+	return n
+}
+
+// libBreakdown counts active line items by assembly library standing. known is
+// how many reported one at all, so callers can tell "no extended parts" apart
+// from "no library data".
+func (m Model) libBreakdown() (basic, preferred, extended, known int) {
+	for i := range m.items {
+		if i < len(m.excluded) && m.excluded[i] {
+			continue
+		}
+		switch m.libOf(i) {
+		case part.LibBasic:
+			basic++
+		case part.LibPreferred:
+			preferred++
+		case part.LibExtended:
+			extended++
+		default:
+			continue
+		}
+		known++
+	}
+	return
+}
+
 func (m Model) stockOf(i int) int {
 	if p := m.assigned[i]; p != nil {
 		return p.Stock

@@ -195,7 +195,7 @@ func (m Model) viewCheck(w, h int) string {
 	lines = append(lines, "")
 	lines = append(lines, m.preflightAndManifest(w)...)
 
-	lines = append(lines, "", accentStyle.Render("Volume pricing")+dimStyle.Render("  order cost at LCSC quantity breaks"))
+	lines = append(lines, "", accentStyle.Render("Volume pricing")+dimStyle.Render("  order cost at supplier quantity breaks"))
 	lines = append(lines, colHeadStyle.Render(pad("  BOARDS", 12)+pad("ORDER COST", 16)+pad("PER BOARD", 14)))
 	for _, n := range []int{1, 100, 200, 300, 400, 500} {
 		tot, complete := m.costAt(n)
@@ -208,7 +208,31 @@ func (m Model) viewCheck(w, h int) string {
 			subtleStyle.Render(fmt.Sprintf("$%.4f", tot/float64(n))))
 	}
 	if n, extra := m.moqImpact(1); n > 0 {
-		lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d parts hit their LCSC minimum order — +$%.2f extra stock at 1 board", n, extra)))
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d parts hit their supplier minimum order — +$%.2f extra stock at 1 board", n, extra)))
+	}
+
+	if b, pref, ext, known := m.libBreakdown(); known > 0 {
+		lines = append(lines, "", accentStyle.Render("Assembly library")+
+			dimStyle.Render("  extended parts pay a per-part setup fee"))
+		lines = append(lines, "  "+strings.Join([]string{
+			okStyle.Render(fmt.Sprintf("basic %d", b)),
+			accentStyle.Render(fmt.Sprintf("preferred %d", pref)),
+			hotStyle(ext, warnStyle).Render(fmt.Sprintf("extended %d", ext)),
+		}, sepStyle.Render(" · ")))
+		if ext > 0 {
+			// Deliberately no dollar figure: JLCPCB's rate changes and a stale
+			// number here would be worse than none.
+			fee := "setup fees are"
+			if ext == 1 {
+				fee = "setup fee is"
+			}
+			lines = append(lines, dimStyle.Render(fmt.Sprintf(
+				"  %d %s not in the totals above — check JLCPCB's current rate", ext, fee)))
+		}
+		if rest := m.activeCount() - known; rest > 0 {
+			lines = append(lines, dimStyle.Render(fmt.Sprintf(
+				"  %d parts have no library data — re-search them on jlcpcb (^o in search) to fill it in", rest)))
+		}
 	}
 
 	if fixes := export.RotationFixes(m.placements, m.excludeSet(), m.rotOverrideMap()); len(fixes) > 0 {

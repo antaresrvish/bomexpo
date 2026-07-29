@@ -11,6 +11,7 @@ import (
 
 	"bomexpo/internal/export"
 	"bomexpo/internal/kicad"
+	"bomexpo/internal/part"
 	"bomexpo/internal/render"
 	"bomexpo/internal/value"
 )
@@ -219,7 +220,9 @@ type cols struct{ ref, val, fp, qty, code, stock, price, ds, rot, note int }
 // width; when the fixed columns already overflow, note stays at the minimum and
 // the viewport scrolls horizontally.
 func layoutCols(tableW int) cols {
-	c := cols{ref: 9, val: 10, fp: 18, qty: 4, code: 9, stock: 9, price: 8, ds: 9, rot: 5}
+	// stock holds a grouped 9-digit number: an assembler's stock runs into the
+	// tens of millions and eliding it hides the useful digits.
+	c := cols{ref: 9, val: 10, fp: 18, qty: 4, code: 9, stock: 11, price: 8, ds: 9, rot: 5}
 	c.note = tableW - 2 - c.ref - c.val - c.fp - c.qty - c.code - c.stock - c.price - c.ds - c.rot - 3*9
 	if c.note < 24 {
 		c.note = 24
@@ -456,7 +459,11 @@ func (m Model) compactOverview(sideW, avail int) []string {
 			tile("mismatch", fmt.Sprintf("%d", mm), hotStyle(mm, warnStyle))),
 	)
 	nRot := len(export.RotationFixes(m.placements, m.excludeSet(), m.rotOverrideMap()))
-	summary := dimStyle.Render(fmt.Sprintf("excluded %d · dnp %d · rot %d", m.excludedCount(), m.dnpCount(), nRot))
+	sum := fmt.Sprintf("excluded %d · dnp %d · rot %d", m.excludedCount(), m.dnpCount(), nRot)
+	if n := m.extCount(); n > 0 {
+		sum += fmt.Sprintf(" · ext %d", n)
+	}
+	summary := dimStyle.Render(sum)
 
 	lines := append([]string{accentStyle.Render("Overview")}, strings.Split(grid, "\n")...)
 	lines = append(lines, summary)
@@ -495,14 +502,23 @@ func (m Model) selectedInspector(sideW, budget int) []string {
 		if p.Brand != "" {
 			code += dimStyle.Render(" · ") + subtleStyle.Render(p.Brand)
 		}
+		// Order matters: a short sidebar truncates from the bottom, so the
+		// numbers you check every time come before the extras.
 		rows = append(rows,
 			kv("lcsc", code),
 			kv("desc", dimStyle.Render(p.Description())),
 			kv("stock", okStyle.Render(groupThousands(p.Stock))),
 			kv("price", warnStyle.Render(p.PriceLabel())),
 		)
+		if p.Lib.Known() {
+			rows = append(rows, kv("library", libCell(p.Lib, p.Lib.String())))
+		}
 		if p.MinBuy > 1 {
 			rows = append(rows, kv("moq", subtleStyle.Render(fmt.Sprintf("%d", p.MinBuy))))
+		}
+		if p.AsmMin > 1 || p.Loss > 0 {
+			rows = append(rows, kv("assembly",
+				subtleStyle.Render(fmt.Sprintf("min %d · loss %d", p.AsmMin, p.Loss))))
 		}
 		if s := p.Specs(); s != "" {
 			rows = append(rows, kv("specs", dimStyle.Render(s)))
@@ -643,7 +659,7 @@ func (m Model) rowView(i int, c cols, sep string) string {
 		plain[1],
 		subtleStyle.Render(plain[2]),
 		dimStyle.Render(plain[3]),
-		codeCell(code, plain[4]),
+		codeCell(code, m.libOf(i), plain[4]),
 		stockCell(stock, plain[5]),
 		warnStyle.Render(plain[6]),
 		dsCellStyle(ds, plain[7]),
@@ -707,9 +723,14 @@ func rotCell(it kicad.Item) (string, lipgloss.Style) {
 	return fmt.Sprintf("%.0f°", export.FamilyOffset(it.Footprint)), okStyle
 }
 
-func codeCell(code, s string) string {
+// codeCell colours the part code by what it costs to assemble when the source
+// told us, so an order full of extended parts is visible without a new column.
+func codeCell(code string, k part.LibKind, s string) string {
 	if code == "—" {
 		return dimStyle.Render(s)
+	}
+	if k.Known() {
+		return libCell(k, s)
 	}
 	return accentStyle.Render(s)
 }
