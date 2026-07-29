@@ -28,10 +28,11 @@ func partsModel(t *testing.T, results ...part.Part) Model {
 	return m
 }
 
-// queryFocus hands the keyboard to the search query, the state where letters are
-// text rather than commands.
+// queryFocus hands the keyboard to the search query the way a user does: / opens
+// the category popup, and closing it leaves the query focused.
 func queryFocus(m Model) Model {
 	mm, _ := m.updatePartsKey(key("/"))
+	mm, _ = mm.(Model).updateCatKey(key("esc"))
 	return mm.(Model)
 }
 
@@ -238,10 +239,10 @@ func TestPartsListFocusTreatsLettersAsCommands(t *testing.T) {
 	if m.parts.field.Value() != "" {
 		t.Errorf("a command letter leaked into the query: %q", m.parts.field.Value())
 	}
-	// / hands the keyboard back
+	// / reaches for the search, which opens the category popup on the way
 	mm, _ := m.updatePartsKey(key("/"))
-	if !mm.(Model).parts.field.Focused() {
-		t.Error("/ should focus the query")
+	if !mm.(Model).cat.open {
+		t.Error("/ should open the category popup")
 	}
 }
 

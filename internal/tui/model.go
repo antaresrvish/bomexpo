@@ -171,6 +171,7 @@ func New(opt Options) Model {
 	m.load = newLoadState(opt.Project)
 	m.search = newSearchState()
 	m.parts = newPartsState()
+	m.cat = newCatState()
 	m.check = newCheckState()
 	m.filter = newFilterState()
 	m.nets = newNetState()

@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"bomexpo/internal/part"
+	"bomexpo/internal/taxonomy"
 )
 
 // catPart is a result row with just a code and a category, which is all the
@@ -35,14 +36,18 @@ func catModel(t *testing.T) Model {
 	m.parts.results = rows
 	m.parts.total = 5000
 	mm, _ := m.gotoTab(modeParts)
-	cm, _ := mm.(Model).openCategories()
+	m = mm.(Model)
+	// pretend the taxonomy is already cached, so no probe search runs in a test
+	m.cat.cats = taxonomy.FromParts(rows)
+	m.cat.loaded = m.srcID()
+	cm, _ := m.openCategories()
 	return cm.(Model)
 }
 
 // The busiest parent comes first and the busiest leaf within it, because that's
 // the order you want to scan.
 func TestCategoriesGroupByParentBusiestFirst(t *testing.T) {
-	cells := catGroups(catModel(t).catRows())
+	cells := catModel(t).catCells()
 	var got []string
 	for _, c := range cells {
 		switch {
@@ -77,7 +82,7 @@ func TestPickingACategoryNarrowsTheResults(t *testing.T) {
 	if got := len(m.parts.filtered()); got != 14 {
 		t.Fatalf("unfiltered = %d rows, want 14", got)
 	}
-	cells := catGroups(m.catRows())
+	cells := m.catCells()
 	var usb catCell
 	for _, c := range cells {
 		if c.label == "USB Connectors" {
@@ -110,22 +115,22 @@ func TestPickingACategoryNarrowsTheResults(t *testing.T) {
 // the others vanish and leave you stuck.
 func TestCategoryBoxesSurviveTheirOwnFilter(t *testing.T) {
 	m := catModel(t)
-	before := len(catPickable(catGroups(m.catRows())))
+	before := len(catPickable(m.catCells()))
 	m.parts.cat = "USB Connectors"
-	if after := len(catPickable(catGroups(m.catRows()))); after != before {
+	if after := len(catPickable(m.catCells())); after != before {
 		t.Errorf("%d boxes with a category applied, %d without — you could not switch away", after, before)
 	}
 }
 
-// A new search brings its own categories, so an old pick can't silently hide
-// every row.
-func TestResearchClearsTheCategory(t *testing.T) {
+// The whole flow is pick a category, then search inside it, so a new query must
+// keep the category rather than quietly dropping it.
+func TestSearchingKeepsThePickedCategory(t *testing.T) {
 	m := catModel(t)
 	m.parts.cat = "USB Connectors"
 	m.parts.field.SetValue("stm32")
 	mm, _ := m.researchParts()
-	if got := mm.(Model).parts.cat; got != "" {
-		t.Errorf("a new query kept the category %q", got)
+	if got := mm.(Model).parts.cat; got != "USB Connectors" {
+		t.Errorf("a new query changed the category to %q", got)
 	}
 }
 
@@ -133,7 +138,7 @@ func TestResearchClearsTheCategory(t *testing.T) {
 // choices.
 func TestCategoryArrowsSkipHeadings(t *testing.T) {
 	m := catModel(t)
-	cells := catGroups(m.catRows())
+	cells := m.catCells()
 	mm, _ := m.updateCatKey(key("tab")) // hand the grid the keyboard
 	m = mm.(Model)
 
@@ -163,21 +168,67 @@ func TestCategoryArrowsSkipHeadings(t *testing.T) {
 	}
 }
 
-// Typing in the panel is a search, not a set of commands.
-func TestCategoryPanelTypingSearches(t *testing.T) {
+// The popup's input is its own: it narrows the category list and never reaches the
+// parts query. Two inputs taking the same keystroke was the bug.
+func TestCategoryFilterIsSeparateFromTheSearch(t *testing.T) {
 	m := catModel(t)
-	for _, r := range "ldk" { // letters that are grid commands once the field is blurred
+	before := len(catPickable(m.catCells()))
+	for _, r := range "usb" {
 		mm, cmd := m.updateCatKey(key(string(r)))
 		m = mm.(Model)
-		if cmd == nil {
-			t.Error("typing should have queued a search")
+		if cmd != nil {
+			t.Error("narrowing the category list should not fire a parts search")
 		}
 	}
-	if got := m.parts.field.Value(); got != "ldk" {
-		t.Errorf("field = %q, want %q", got, "ldk")
+	if got := m.cat.field.Value(); got != "usb" {
+		t.Errorf("the popup's input holds %q, want %q", got, "usb")
 	}
-	if m.cat.cursor != 0 {
-		t.Errorf("a new query should reset the cursor, got %d", m.cat.cursor)
+	if got := m.parts.field.Value(); got != "" {
+		t.Errorf("the keystrokes leaked into the parts query: %q", got)
+	}
+	after := catPickable(m.catCells())
+	if len(after) >= before {
+		t.Errorf("%d categories after narrowing, %d before", len(after), before)
+	}
+	// and the cursor lands on something that survived the filter
+	cells := m.catCells()
+	if m.cat.cursor >= len(cells) || cells[m.cat.cursor].heading {
+		t.Errorf("cursor %d is not on a box after narrowing", m.cat.cursor)
+	}
+}
+
+// Closing the popup, either way, leaves the keyboard on the parts query — that's
+// what you reach for next.
+func TestClosingTheCategoryPopupFocusesTheSearch(t *testing.T) {
+	for _, k := range []string{"esc", "enter"} {
+		m := catModel(t)
+		if !m.cat.field.Focused() || m.parts.field.Focused() {
+			t.Fatal("the popup should open with its own input focused and the query quiet")
+		}
+		mm, _ := m.updateCatKey(key(k))
+		m = mm.(Model)
+		if m.cat.open {
+			t.Errorf("%s left the popup open", k)
+		}
+		if !m.parts.field.Focused() {
+			t.Errorf("%s did not hand the keyboard to the parts query", k)
+		}
+		if m.cat.field.Focused() {
+			t.Errorf("%s left the popup input focused", k)
+		}
+	}
+}
+
+// t reopens the popup from the results, so a category can be changed without
+// clearing the search.
+func TestTReopensTheCategoryPopup(t *testing.T) {
+	m := catModel(t)
+	mm, _ := m.updateCatKey(key("esc"))
+	m = mm.(Model)
+	m.parts.field.Blur() // back on the results list
+	mm, _ = m.updatePartsKey(key("t"))
+	if !mm.(Model).cat.open {
+		t.Error("t should open the category popup")
 	}
 }
 
@@ -221,13 +272,15 @@ func TestCategoryBoxKeepsTheCountAndItsBorder(t *testing.T) {
 	}
 }
 
-// The panel has to say where its list comes from — these are the categories the
-// search hit, not a catalogue you can browse.
-func TestCategoryPanelSaysWhereTheBoxesComeFrom(t *testing.T) {
+// The popup has to say what it's for, since it opens on the way to the search
+// rather than being asked for.
+func TestCategoryPopupSaysWhatItIsFor(t *testing.T) {
 	m := catModel(t)
 	out := stripANSI(m.viewCategories(m.contentW(), m.contentH()))
-	if !strings.Contains(out, "not the whole catalogue") {
-		t.Errorf("the panel should be honest about its source:\n%s", out)
+	for _, want := range []string{"What kind of part?", "pick one, then search inside it"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the popup never says %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -243,7 +296,7 @@ func TestCategoryPanelFloatsOverTheResults(t *testing.T) {
 		t.Fatal("opening the popup changed nothing")
 	}
 	// the popup's own frame is there
-	if !strings.Contains(open, "Categories ·") {
+	if !strings.Contains(open, "What kind of part?") {
 		t.Error("the popup has no title")
 	}
 	// and so is the table behind it: its column header survives on both sides
@@ -264,7 +317,9 @@ func TestCategoryPanelFloatsOverTheResults(t *testing.T) {
 // A popup is only as tall as its categories need, and never taller than the page.
 func TestCategoryPopupFitsItsContent(t *testing.T) {
 	small := catModel(t)
-	small.parts.results = []part.Part{catPart("C1", "Capacitors", "Tantalum Capacitors")}
+	one := []part.Part{catPart("C1", "Capacitors", "Tantalum Capacitors")}
+	small.parts.results = one
+	small.cat.cats = taxonomy.FromParts(one)
 	small.w, small.h = 130, 40
 	_, _, _, shortH := small.catGeom()
 
@@ -363,5 +418,49 @@ func TestOverlayKeepsWhatItDoesNotCover(t *testing.T) {
 	wide := overlay(bg, []string{strings.Repeat("Z", 50)}, 30, 0, 40)
 	if got := lipgloss.Width(wide[0]); got != 40 {
 		t.Errorf("an over-wide box gave a %d column line", got)
+	}
+}
+
+// Narrowing the list and pressing enter must give you what you typed, not the box
+// that clears the filter.
+func TestNarrowingThenEnterPicksTheMatch(t *testing.T) {
+	m := catModel(t)
+	for _, r := range "usb" {
+		mm, _ := m.updateCatKey(key(string(r)))
+		m = mm.(Model)
+	}
+	mm, _ := m.updateCatKey(key("enter"))
+	if got := mm.(Model).parts.cat; got != "USB Connectors" {
+		t.Errorf("category = %q, want USB Connectors", got)
+	}
+}
+
+// With nothing typed the cursor sits on the everything box, so enter is "search
+// the lot" rather than whichever category happens to be first.
+func TestEnterWithNoFilterSearchesEverything(t *testing.T) {
+	m := catModel(t)
+	m.parts.cat = "USB Connectors"
+	mm, _ := m.updateCatKey(key("enter"))
+	if got := mm.(Model).parts.cat; got != "" {
+		t.Errorf("category = %q, want it cleared", got)
+	}
+}
+
+// A category with no matching results has to say so, or the table just looks empty
+// and broken.
+func TestPartsSaysWhenTheCategoryMatchedNothing(t *testing.T) {
+	m := catModel(t)
+	mm, _ := m.updateCatKey(key("esc"))
+	m = mm.(Model)
+	m.parts.cat = "Ethernet Connectors"
+	if got := len(m.parts.filtered()); got != 0 {
+		t.Fatalf("expected the category to match nothing, got %d rows", got)
+	}
+	out := stripANSI(m.viewParts(m.contentW(), m.contentH()))
+	if !strings.Contains(out, "none of the 14 results are in Ethernet Connectors") {
+		t.Errorf("the empty result is unexplained:\n%s", out)
+	}
+	if !strings.Contains(out, "t to change the category") {
+		t.Error("it should say how to get out of it")
 	}
 }

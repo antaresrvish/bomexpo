@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 
@@ -141,4 +142,12 @@ func spaces(n int) string {
 		b[i] = ' '
 	}
 	return string(b)
+}
+
+// plural renders a count with the right word for it.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }

@@ -52,6 +52,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pinDetailMsg:
 		return m.updatePinDetail(msg)
 
+	case catsLoadedMsg:
+		return m.updateCatsLoaded(msg)
+
 	case footprintDoneMsg:
 		// a failed download just leaves the card showing the package name
 		if msg.err == nil && len(msg.fp.Lands) > 0 && m.edaLands != nil {
@@ -265,6 +268,7 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	m.load.field.Blur()
 	m.parts.field.Blur()
 	m.cat.open = false
+	m.cat.field.Blur()
 	m.check.setPane(paneIssues)
 
 	switch md {
@@ -552,12 +556,8 @@ func (m Model) helpLine(budget int) string {
 			{"/", "search"}, {"esc", "back"}}
 	case modeParts:
 		if m.cat.open {
-			if m.parts.field.Focused() {
-				hints = [][2]string{{"type", "search"}, {"tab", "the boxes"}, {"esc", "back"}}
-				break
-			}
-			hints = [][2]string{{"↑↓←→", "pick"}, {"enter", "narrow to it"},
-				{"/", "search"}, {"tab", "the results"}, {"esc", "back"}}
+			hints = [][2]string{{"↑↓←→", "pick"}, {"enter", "search inside it"},
+				{"type", "narrow the list"}, {"esc", "back"}}
 			break
 		}
 		if m.parts.field.Focused() {
@@ -566,7 +566,7 @@ func (m Model) helpLine(budget int) string {
 			break
 		}
 		hints = [][2]string{{"↑↓", "results"}, {"p", "pin"}, {"c", "compare"}, {"d", "datasheet"},
-			{"/", "search"}, tabHint(true)}
+			{"/", "search"}, {"t", "category"}, tabHint(true)}
 	case modeCompare:
 		hints = [][2]string{{"tab", "card"}, {"↑↓", "scroll"}, {"x", "unpin"}, {"d", "datasheet"},
 			tabHint(true), {"esc", "back"}}

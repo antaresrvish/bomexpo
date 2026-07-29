@@ -176,7 +176,6 @@ func (m Model) updatePartsDebounce(msg partsDebounceMsg) (tea.Model, tea.Cmd) {
 // server-side filter all call for.
 func (m Model) researchParts() (tea.Model, tea.Cmd) {
 	m.parts.cursor, m.parts.top = 0, 0
-	m.parts.cat = "" // a new query has its own categories; the old pick may not be among them
 	kw := strings.TrimSpace(m.parts.field.Value())
 	if kw == "" {
 		m.parts.results, m.parts.total = nil, 0
@@ -305,8 +304,11 @@ func (m Model) updatePartsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "/", "i":
-		// the search opens onto the categories, with the query focused
+		// Reaching for the search opens the category popup first: pick what kind
+		// of part you want, then type inside it.
 		return m.openCategories()
+	case "t":
+		return m.openCategories() // and t is how you change your mind later
 	case "p", " ":
 		return m.togglePin()
 	case "c":
@@ -438,6 +440,9 @@ func (m Model) viewParts(w, h int) string {
 			dimStyle.Render(" to search "+m.srcLabel()+" — no board needed")
 	case len(s.results) == 0:
 		status = dimStyle.Render("type to search " + m.srcLabel() + " — no board needed")
+	case len(f) == 0 && s.cat != "":
+		status = warnStyle.Render(fmt.Sprintf("none of the %d results are in %s", len(s.results), s.cat)) +
+			dimStyle.Render("   t to change the category")
 	default:
 		status = subtleStyle.Render(m.partsCount(len(f))) + "   " + m.partsChips()
 	}
@@ -516,11 +521,10 @@ func (m Model) partsChips() string {
 	if len(m.srcs) > 1 {
 		keys = append(keys, "o")
 	}
-	keys = append(keys, "/ categories")
-	hint := "  " + strings.Join(keys, " ")
+	hint := "  " + strings.Join(keys, " ") + " · t category"
 	if s.field.Focused() {
 		// the letters are text right now, so name the forms that still work
-		hint = "  ^" + strings.Join(keys[:len(keys)-1], " ^")
+		hint = "  ^" + strings.Join(keys, " ^")
 	}
 	return strings.Join(chips, " ") + dimStyle.Render(hint)
 }
