@@ -480,7 +480,12 @@ func (m Model) helpLine() string {
 	case modeLoad:
 		hints = [][2]string{{"tab", "complete"}, {"enter", "open"}, {"ctrl+c", "quit"}}
 	case modeTable:
-		hints = [][2]string{{"enter", "assign"}, {"a", "auto"}, {"t/b/i", "3D"}, {"o", "rotate"}, {"w", "save"}, {"←→", "scroll"}, {"tab", "switch"}}
+		if m.filter.open {
+			hints = [][2]string{{"type", "filter"}, {"↑↓", "rows"}, {"enter", "keep"}, {"esc", "clear"},
+				{"net: ref: val: fp: lcsc: lib: st:", "keys"}}
+			break
+		}
+		hints = [][2]string{{"enter", "assign"}, {"a", "auto"}, {"/", "filter"}, {"t/b/i", "3D"}, {"o", "rotate"}, {"w", "save"}, {"tab", "switch"}}
 	case modeSearch:
 		hints = [][2]string{{"type", "search"}, {"↑↓", "results"}, {"enter", "pick"}, {"^f/^t/^s", "filters"}}
 		if len(m.srcs) > 1 {

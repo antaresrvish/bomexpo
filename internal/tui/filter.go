@@ -1,0 +1,276 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	"bomexpo/internal/part"
+)
+
+// The filter is a handful of space-separated terms, all of which must match:
+//
+//	net:GND          on that net
+//	ref:C1  val:100nF  fp:0402  lcsc:C1525
+//	lib:basic        assembly library standing
+//	st:unassigned    line-item state
+//	0402             bare text: reference, value or footprint
+//	-st:excluded     leading minus inverts the term
+//
+// Matching is case-insensitive substring throughout, so net:3v3 finds +3V3 and
+// ref:C1 finds C1, C10, C12.
+var filterKeys = []string{"net", "ref", "val", "fp", "lcsc", "lib", "st"}
+
+type filterTerm struct {
+	key    string // one of filterKeys, or "" for bare text
+	want   string
+	negate bool
+}
+
+type filter struct {
+	raw   string
+	terms []filterTerm
+	// unknown holds key-looking prefixes we didn't recognise, so a typo says so
+	// instead of silently matching nothing.
+	unknown []string
+}
+
+func (f filter) active() bool { return len(f.terms) > 0 }
+
+func parseFilter(s string) filter {
+	f := filter{raw: strings.TrimSpace(s)}
+	for _, tok := range strings.Fields(f.raw) {
+		t := filterTerm{}
+		if strings.HasPrefix(tok, "-") {
+			t.negate, tok = true, tok[1:]
+		}
+		if tok == "" {
+			continue
+		}
+		if k, v, ok := strings.Cut(tok, ":"); ok {
+			lk := strings.ToLower(k)
+			switch {
+			case knownKey(lk):
+				t.key, t.want = lk, strings.ToLower(v)
+			case isWord(lk):
+				// looks like a key but isn't one — say so rather than
+				// searching for the literal text and finding nothing
+				f.unknown = append(f.unknown, lk)
+				continue
+			default:
+				t.want = strings.ToLower(tok)
+			}
+		} else {
+			t.want = strings.ToLower(tok)
+		}
+		if t.want == "" {
+			continue
+		}
+		f.terms = append(f.terms, t)
+	}
+	return f
+}
+
+func knownKey(k string) bool {
+	for _, want := range filterKeys {
+		if k == want {
+			return true
+		}
+	}
+	return false
+}
+
+func isWord(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
+// match reports whether line item i survives the filter.
+func (f filter) match(m Model, i int) bool {
+	for _, t := range f.terms {
+		if t.hit(m, i) == t.negate {
+			return false
+		}
+	}
+	return true
+}
+
+func (t filterTerm) hit(m Model, i int) bool {
+	it := m.items[i]
+	switch t.key {
+	case "net":
+		return anyContains(it.Nets, t.want)
+	case "ref":
+		return anyContains(it.Designators, t.want) || contains(it.ID(), t.want)
+	case "val":
+		return contains(it.Value, t.want)
+	case "fp":
+		return contains(it.Footprint, t.want)
+	case "lcsc":
+		return contains(it.LCSC, t.want)
+	case "lib":
+		return t.hitLib(m.libOf(i))
+	case "st":
+		return t.hitState(m, i)
+	}
+	// bare text: the columns you'd scan by eye
+	return contains(it.ID(), t.want) || anyContains(it.Designators, t.want) ||
+		contains(it.Value, t.want) || contains(it.Footprint, t.want)
+}
+
+func (t filterTerm) hitLib(k part.LibKind) bool {
+	switch t.want {
+	case "basic":
+		return k == part.LibBasic
+	case "preferred", "pref":
+		return k == part.LibPreferred
+	case "extended", "ext":
+		return k == part.LibExtended
+	case "none", "unknown":
+		return !k.Known()
+	}
+	return contains(k.String(), t.want)
+}
+
+func (t filterTerm) hitState(m Model, i int) bool {
+	st := m.stateOf(i)
+	switch t.want {
+	case "ok":
+		return st == stOK
+	case "unassigned", "todo":
+		return st == stUnassigned
+	case "oos", "nostock", "out":
+		return st == stOutOfStock
+	case "mismatch":
+		return st == stMismatch
+	case "excluded":
+		return st == stExcluded
+	case "dnp":
+		return m.items[i].DNP
+	case "rot":
+		return m.items[i].HasRotOverride
+	}
+	return false
+}
+
+func contains(hay, needle string) bool {
+	return strings.Contains(strings.ToLower(hay), needle)
+}
+
+func anyContains(hay []string, needle string) bool {
+	for _, h := range hay {
+		if contains(h, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// filterState is the filter bar: the query being typed and the one in force.
+type filterState struct {
+	field textfield
+	open  bool // the bar has the keyboard
+	f     filter
+}
+
+func newFilterState() filterState {
+	return filterState{field: newField("", "net:GND  val:100nF  st:unassigned  -st:excluded", 60)}
+}
+
+// visible reports whether the bar takes a row: while typing, and afterwards so a
+// filter is never in force invisibly.
+func (m Model) filterBarVisible() bool { return m.filter.open || m.filter.f.active() }
+
+// matchedRefs are the designators the filter selected, for the board view. Nil
+// when no filter is on, which means "don't dim anything".
+func (m Model) matchedRefs() map[string]bool {
+	if !m.filter.f.active() {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, i := range m.view {
+		for _, d := range m.items[i].Designators {
+			out[d] = true
+		}
+	}
+	return out
+}
+
+func (m Model) openFilter() (tea.Model, tea.Cmd) {
+	m.filter.open = true
+	m.filter.field.Focus()
+	return m, nil
+}
+
+// closeFilter puts the keyboard back on the table. clear also drops the query.
+func (m Model) closeFilter(clear bool) (tea.Model, tea.Cmd) {
+	m.filter.open = false
+	m.filter.field.Blur()
+	if clear {
+		m.filter.field.SetValue("")
+		m.filter.f = filter{}
+		return m.reindex(), nil
+	}
+	return m, nil
+}
+
+func (m Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		return m.closeFilter(true)
+	case "enter":
+		return m.closeFilter(false)
+	// let the list stay navigable while the query has focus
+	case "up":
+		m.cursor = max(0, m.cursor-1)
+		m.clampScroll()
+		return m, nil
+	case "down":
+		m.cursor = min(m.rows()-1, m.cursor+1)
+		m.clampScroll()
+		return m, nil
+	}
+	before := m.filter.field.Value()
+	m.filter.field.Update(msg)
+	if m.filter.field.Value() == before {
+		return m, nil
+	}
+	// filtering is local, so there's nothing to wait for — apply as you type
+	m.filter.f = parseFilter(m.filter.field.Value())
+	m.cursor, m.top = 0, 0
+	return m.reindex(), nil
+}
+
+func (m Model) filterBar(w int) string {
+	var left string
+	if m.filter.open {
+		left = accentStyle.Render("/ ") + m.filter.field.View()
+	} else {
+		left = dimStyle.Render("/ ") + subtleStyle.Render(m.filter.f.raw) +
+			dimStyle.Render("   / edit · esc clear")
+	}
+
+	right := subtleStyle.Render(fmt.Sprintf("%d of %d", m.rows(), len(m.items)))
+	switch {
+	case len(m.filter.f.unknown) > 0:
+		right = badStyle.Render("unknown: " + strings.Join(m.filter.f.unknown, " ") +
+			dimStyle.Render("  try "+strings.Join(filterKeys, " ")))
+	case m.filter.f.active() && m.rows() == 0:
+		right = badStyle.Render("nothing matches")
+	}
+
+	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	return left + spaces(gap) + right
+}

@@ -18,8 +18,20 @@ import (
 
 const dataTop = 4 // tab(1) + border(1) + colhead(1) + rule(1)
 
+// dataTop is the screen row of the first data line, one lower while the filter
+// bar is taking a row.
+func (m Model) dataTop() int {
+	if m.filterBarVisible() {
+		return dataTop + 1
+	}
+	return dataTop
+}
+
 func (m Model) visibleRows() int {
 	n := m.contentH() - 3 // header, rule, horizontal scrollbar
+	if m.filterBarVisible() {
+		n--
+	}
 	if n < 1 {
 		n = 1
 	}
@@ -27,7 +39,17 @@ func (m Model) visibleRows() int {
 }
 
 func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.filter.open {
+		return m.updateFilterKey(msg)
+	}
 	switch msg.String() {
+	case "/":
+		return m.openFilter()
+	case "esc":
+		if m.filter.f.active() {
+			return m.closeFilter(true)
+		}
+		return m, nil
 	case "q":
 		return m, tea.Quit
 	case "tab":
@@ -115,7 +137,7 @@ func (m Model) startAutoAssign() (tea.Model, tea.Cmd) {
 func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) {
 	h := m.contentH()
 	tableW := m.tableW()
-	visRows := h - 3
+	visRows := m.visibleRows()
 	vbarX := 2 + tableW
 	hbarY := 2 + h - 1
 	left := ms.Button == tea.MouseLeft
@@ -149,7 +171,7 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 	}
 
 	// grab a scrollbar?
-	if ms.X == vbarX && ms.Y >= dataTop && ms.Y < dataTop+visRows {
+	if ms.X == vbarX && ms.Y >= m.dataTop() && ms.Y < m.dataTop()+visRows {
 		m.drag = dragVert
 		return m.vScrollTo(ms.Y), nil
 	}
@@ -180,7 +202,7 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 	c := layoutCols(tableW)
 	lineX := bx + clampInt(m.hoff, 0, m.maxHoff())
 
-	if ms.Y == 2 { // header → sort by column
+	if ms.Y == m.dataTop()-2 { // header → sort by column
 		if k, ok := colSortKey(c, lineX); ok {
 			if m.sort == k {
 				m.sortAsc = !m.sortAsc
@@ -191,8 +213,8 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 		}
 		return m, nil
 	}
-	row := m.top + (ms.Y - dataTop)
-	if ms.Y >= dataTop && ms.Y < dataTop+visRows && row >= 0 && row < m.rows() {
+	row := m.top + (ms.Y - m.dataTop())
+	if ms.Y >= m.dataTop() && ms.Y < m.dataTop()+visRows && row >= 0 && row < m.rows() {
 		m.cursor = row
 		m.clampScroll()
 		if p := m.assigned[m.at(row)]; p != nil && p.Datasheet != "" {
@@ -312,8 +334,14 @@ func (m Model) tableBlock(c cols, tableW, h int) []string {
 	sep := sepStyle.Render(" │ ")
 	head := colHeadStyle.Render(padRender(m.headRow(c), full))
 	rule := borderStyle.Render(strings.Repeat("─", full))
-	lines := []string{crop(head), crop(rule)}
-	visRows := h - 3
+	var lines []string
+	// visibleRows already accounts for the bar's row
+	visRows := m.visibleRows()
+	if m.filterBarVisible() {
+		// the bar isn't part of the scrollable table, so it isn't cropped
+		lines = append(lines, m.filterBar(tableW))
+	}
+	lines = append(lines, crop(head), crop(rule))
 	end := min(m.rows(), m.top+visRows)
 	for i := m.top; i < end; i++ {
 		lines = append(lines, crop(m.rowView(i, c, sep)))
@@ -348,9 +376,11 @@ func hScrollRow(tableW, total, vis, hoff int) string {
 // vScrollCol is the vertical scrollbar drawn between the table and the sidebar.
 func (m Model) vScrollCol(h int) []string {
 	total := m.rows()
-	vis := h - 3
+	// the track covers the data rows only, which start below the filter bar
+	trackTop := m.dataTop() - 2
+	vis := h - 1 - trackTop
+	trackLen := vis
 	top := clampInt(m.top, 0, max(0, total-vis))
-	trackTop, trackLen := 2, h-3
 	thumb, pos := trackLen, 0
 	if total > vis && vis > 0 {
 		thumb = max(1, vis*trackLen/total)
@@ -376,7 +406,7 @@ func (m Model) vScrollTo(screenY int) Model {
 	if total <= vis {
 		return m
 	}
-	rel := clampInt(screenY-dataTop, 0, vis-1)
+	rel := clampInt(screenY-m.dataTop(), 0, vis-1)
 	m.top = clampInt(rel*(total-vis)/max(1, vis-1), 0, total-vis)
 	if m.cursor < m.top {
 		m.cursor = m.top

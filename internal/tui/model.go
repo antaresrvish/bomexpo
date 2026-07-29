@@ -81,6 +81,7 @@ type Model struct {
 	compare compareState
 	boardv  boardState
 	check   checkState
+	filter  filterState
 
 	name       string
 	pcbPath    string // empty for a CSV design
@@ -156,6 +157,7 @@ func New(opt Options) Model {
 	m.search = newSearchState()
 	m.parts = newPartsState()
 	m.check = newCheckState()
+	m.filter = newFilterState()
 	return m
 }
 
@@ -540,7 +542,9 @@ func (m Model) rowOf(i int) int {
 func (m Model) reindex() Model {
 	view := make([]int, 0, len(m.items))
 	for i := range m.items {
-		view = append(view, i)
+		if m.filter.f.match(m, i) {
+			view = append(view, i)
+		}
 	}
 	// sortNone means the order kicad.BOM already put them in, by reference.
 	if m.sort != sortNone {
