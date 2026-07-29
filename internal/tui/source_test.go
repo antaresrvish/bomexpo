@@ -29,13 +29,13 @@ func searchModel(t *testing.T, results []part.Part) Model {
 func TestSearchColsGiveLibraryOnlyToCapableSource(t *testing.T) {
 	m := searchModel(t, nil)
 
-	if got := m.searchCols(136); got.lib != 0 {
+	if got := m.resultCols(136); got.lib != 0 {
 		t.Errorf("lcsc should get no library column, got width %d", got.lib)
 	}
-	lcscDesc := m.searchCols(136).desc
+	lcscDesc := m.resultCols(136).desc
 
 	m = m.nextSrc() // → jlcpcb
-	jl := m.searchCols(136)
+	jl := m.resultCols(136)
 	if jl.lib != scLib {
 		t.Fatalf("jlcpcb should get a library column, got width %d", jl.lib)
 	}
@@ -65,7 +65,7 @@ func TestSearchDatasheetSpan(t *testing.T) {
 		}
 
 		w := m.contentW()
-		lo, _ := m.searchCols(w).dsRange()
+		lo, _ := m.resultCols(w).dsRange()
 
 		var row string
 		for _, ln := range strings.Split(m.viewSearch(w, m.contentH()), "\n") {
