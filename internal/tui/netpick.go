@@ -95,9 +95,23 @@ func (m Model) pickNet(name string) (tea.Model, tea.Cmd) {
 
 func (m Model) updateNetKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	nets := m.netsMatching()
-	switch msg.String() {
+	key := msg.String()
+	typing := m.nets.field.Focused()
+
+	switch key {
 	case "esc":
+		if typing {
+			m.nets.field.Blur() // one esc leaves the query, the next leaves the picker
+			return m, nil
+		}
 		return m.closeNetPicker()
+	case "tab", "shift+tab":
+		if typing {
+			m.nets.field.Blur()
+		} else {
+			m.nets.field.Focus()
+		}
+		return m, nil
 	case "enter":
 		if m.nets.cursor >= 0 && m.nets.cursor < len(nets) {
 			return m.pickNet(nets[m.nets.cursor].Name)
@@ -120,10 +134,24 @@ func (m Model) updateNetKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.clampNets()
 		return m, nil
 	}
-	before := m.nets.field.Value()
-	m.nets.field.Update(msg)
-	if m.nets.field.Value() != before {
-		m.nets.cursor, m.nets.top = 0, 0
+	if typing {
+		before := m.nets.field.Value()
+		m.nets.field.Update(msg)
+		if m.nets.field.Value() != before {
+			m.nets.cursor, m.nets.top = 0, 0
+		}
+		return m, nil
+	}
+
+	switch key {
+	case "/", "i":
+		m.nets.field.Focus()
+	case "g", "home":
+		m.nets.cursor = 0
+		m.clampNets()
+	case "G", "end":
+		m.nets.cursor = max(0, len(nets)-1)
+		m.clampNets()
 	}
 	return m, nil
 }
@@ -174,7 +202,8 @@ func (m Model) mouseNets(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) {
 func (m Model) viewNets(w, h int) string {
 	nets := m.netsMatching()
 
-	title := subtleStyle.Render("pick a net to filter the table  ") + m.nets.field.View()
+	title := focusMark(m.nets.field.Focused()) +
+		subtleStyle.Render("pick a net to filter the table  ") + m.nets.field.View()
 	const nameW, countW = 30, 8
 	refsW := w - nameW - countW - 2 - 3*2
 	if refsW < 10 {
@@ -208,6 +237,10 @@ func (m Model) viewNets(w, h int) string {
 	for len(lines) < h-1 {
 		lines = append(lines, "")
 	}
+	tabs := "tab focuses the query"
+	if m.nets.field.Focused() {
+		tabs = "tab leaves the query"
+	}
 	return strings.Join(lines, "\n") + "\n" +
-		dimStyle.Render(fmt.Sprintf("  %d nets · enter filter · esc back", len(m.designNets)))
+		dimStyle.Render(fmt.Sprintf("  %d nets · enter filter · %s · esc back", len(m.designNets), tabs))
 }

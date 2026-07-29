@@ -94,7 +94,7 @@ func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// the page does, so the board and the issue list are actually reachable.
 	if m.check.out.Focused() {
 		switch msg.String() {
-		case "esc":
+		case "esc", "tab", "shift+tab":
 			m.check.out.Blur()
 			return m, nil
 		case "enter":
@@ -105,16 +105,16 @@ func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	switch msg.String() {
+	key := msg.String()
+	if mm, cmd, done := m.tabSwitchKey(key); done {
+		return mm, cmd
+	}
+	switch key {
 	case "esc":
 		m.mode = modeTable
 		return m, nil
-	case "tab":
-		return m.cycleTab(1)
-	case "shift+tab":
-		return m.cycleTab(-1)
-	case "e":
-		// edit the output path; esc or enter hands the keyboard back
+	case "tab", "shift+tab", "e", "/":
+		// tab is the focus key everywhere; e and / are shortcuts into the field
 		m.check.out.Focus()
 		return m, nil
 	case "enter":
@@ -331,9 +331,11 @@ func (m Model) viewCheck(w, h int) string {
 	// The numbers on the left, the board on the right at the full height it can
 	// get. The output field spans the bottom because it acts on both.
 	body := sideBySide(lines, m.boardPane(rightW, paneH), leftW, w, paneH)
-	label, hint := dimStyle.Render("  Output  "), "e edit · enter export · * = some parts unassigned"
+	label := focusMark(m.check.out.Focused()) + dimStyle.Render("Output  ")
+	hint := "tab edit · enter export · * = some parts unassigned"
 	if m.check.out.Focused() {
-		label, hint = accentStyle.Render("▸ Output  "), "enter export · esc done"
+		label = focusMark(true) + accentStyle.Render("Output  ")
+		hint = "enter export · tab hands the page back · esc done"
 	}
 	body = append(body,
 		label+m.check.out.View(),

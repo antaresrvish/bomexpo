@@ -49,7 +49,16 @@ part's stock, price and specs next to a live board preview. Once everything is a
 and in stock, the Check tab writes the zip you upload to JLCPCB.
 
 Common keys: `enter` assign · `a` auto-assign · `o` cycle rotation override · `x` exclude
-· `w` write LCSC codes back to the pcb · `t`/`b`/`i` open a 3D render · `r` refresh stock.
+· `w` write LCSC codes back to the pcb · `t`/`b`/`i` open a 3D render · `r` refresh stock
+· `n` filter by net.
+
+### Moving around
+
+Whatever has the keyboard is marked with `▸`. A text field keeps every key while it's
+focused, and `tab` is how you take it back — so a search box never swallows a command
+again. Once a list has focus the letters are the commands (`p` pin, `d` datasheet, `s`
+in-stock only, `/` back to typing), and `[` `]` or `1`–`5` switch tabs. Arrow keys always
+drive the list, focused or not.
 
 
 ## What it does

@@ -67,6 +67,31 @@ func TestFullFlow(t *testing.T) {
 	verifyZip(t, out)
 }
 
+// key builds a key press from its name: a single rune types that character,
+// anything longer is a named key like "tab" or "enter".
+func key(name string) tea.KeyPressMsg {
+	switch name {
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "shift+tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "left":
+		return tea.KeyPressMsg{Code: tea.KeyLeft}
+	case "right":
+		return tea.KeyPressMsg{Code: tea.KeyRight}
+	}
+	r := []rune(name)[0]
+	return tea.KeyPressMsg{Text: name, Code: r}
+}
+
 func step(m Model, msg tea.Msg) Model {
 	mm, _ := m.Update(msg)
 	return mm.(Model)

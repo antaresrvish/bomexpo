@@ -125,51 +125,114 @@ func (m Model) updateSearch(msg searchDoneMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	s := &m.search
-	switch msg.String() {
+	key := msg.String()
+	typing := m.search.field.Focused()
+
+	// The arrows and the ctrl forms work whichever pane has focus.
+	switch key {
 	case "esc":
-		s.field.Blur()
+		if typing {
+			m.search.field.Blur() // one esc leaves the query, the next leaves the search
+			return m, nil
+		}
 		m.mode = modeTable
 		return m, nil
+	case "tab", "shift+tab":
+		return m.toggleSearchFocus()
 	case "enter":
 		return m.assignSelected()
 	case "down", "ctrl+n":
-		s.cursor = min(len(s.filtered())-1, s.cursor+1)
-		s.clampSearch(m.searchRows())
+		m.search.cursor = min(len(m.search.filtered())-1, m.search.cursor+1)
+		m.search.clampSearch(m.searchRows())
 		return m, nil
 	case "up", "ctrl+p":
-		s.cursor = max(0, s.cursor-1)
-		s.clampSearch(m.searchRows())
+		m.search.cursor = max(0, m.search.cursor-1)
+		m.search.clampSearch(m.searchRows())
 		return m, nil
 	case "ctrl+s":
-		s.inStockOnly = !s.inStockOnly
-		s.cursor, s.top = 0, 0
-		return m, nil
+		return m.toggleSearchFilter("stock")
 	case "ctrl+f":
-		s.pkgOnly = !s.pkgOnly
-		s.cursor, s.top = 0, 0
-		return m, nil
+		return m.toggleSearchFilter("pkg")
 	case "ctrl+t":
-		s.typeOnly = !s.typeOnly
-		s.cursor, s.top = 0, 0
-		return m, nil
+		return m.toggleSearchFilter("type")
 	case "ctrl+o":
 		return m.switchSource()
 	case "ctrl+b":
+		return m.toggleSearchFilter("basic")
+	}
+
+	if typing {
+		before := m.search.field.Value()
+		m.search.field.Update(msg)
+		if m.search.field.Value() != before {
+			m.search.debounce++
+			return m, searchDebounceCmd(m.search.debounce)
+		}
+		return m, nil
+	}
+
+	// With the results focused the letters are commands.
+	if mm, cmd, done := m.tabSwitchKey(key); done {
+		return mm, cmd
+	}
+	switch key {
+	case "/", "i":
+		m.search.field.Focus()
+	case "s":
+		return m.toggleSearchFilter("stock")
+	case "f":
+		return m.toggleSearchFilter("pkg")
+	case "t":
+		return m.toggleSearchFilter("type")
+	case "b":
+		return m.toggleSearchFilter("basic")
+	case "o":
+		return m.switchSource()
+	case "d":
+		f := m.search.filtered()
+		if m.search.cursor >= 0 && m.search.cursor < len(f) && f[m.search.cursor].Datasheet != "" {
+			openExternal(f[m.search.cursor].Datasheet)
+		}
+	case "g", "home":
+		m.search.cursor = 0
+		m.search.clampSearch(m.searchRows())
+	case "G", "end":
+		m.search.cursor = max(0, len(m.search.filtered())-1)
+		m.search.clampSearch(m.searchRows())
+	}
+	return m, nil
+}
+
+// toggleSearchFocus hands the keyboard between the query and the results.
+func (m Model) toggleSearchFocus() (tea.Model, tea.Cmd) {
+	if m.search.field.Focused() {
+		m.search.field.Blur()
+	} else {
+		m.search.field.Focus()
+	}
+	return m, nil
+}
+
+// toggleSearchFilter flips one result filter. basic is server-side, so it
+// re-searches; the rest are local.
+func (m Model) toggleSearchFilter(which string) (tea.Model, tea.Cmd) {
+	switch which {
+	case "stock":
+		m.search.inStockOnly = !m.search.inStockOnly
+	case "pkg":
+		m.search.pkgOnly = !m.search.pkgOnly
+	case "type":
+		m.search.typeOnly = !m.search.typeOnly
+	case "basic":
 		src := m.src()
 		if src == nil || !src.Caps().BasicFilter {
-			m.flash = fmt.Sprintf("%s has no basic library — switch source with ^o", m.srcLabel())
+			m.flash = fmt.Sprintf("%s has no basic library — switch source with o", m.srcLabel())
 			return m, nil
 		}
-		s.basicOnly = !s.basicOnly
+		m.search.basicOnly = !m.search.basicOnly
 		return m.research()
 	}
-	before := s.field.Value()
-	s.field.Update(msg)
-	if s.field.Value() != before {
-		s.debounce++
-		return m, searchDebounceCmd(s.debounce)
-	}
+	m.search.cursor, m.search.top = 0, 0
 	return m, nil
 }
 
@@ -289,7 +352,8 @@ func (m Model) viewSearch(w, h int) string {
 	}
 	it := m.items[i]
 
-	title := subtleStyle.Render("assign ") + accentStyle.Render(it.ID()) +
+	title := focusMark(!s.field.Focused()) + subtleStyle.Render("assign ") +
+		accentStyle.Render(it.ID()) +
 		subtleStyle.Render(fmt.Sprintf("  (%s · %s)", it.Value, it.Footprint))
 	// The source picker rides on the title row so adding it shifts no rows.
 	if chips := m.sourceChips(); chips != "" {
@@ -312,7 +376,8 @@ func (m Model) viewSearch(w, h int) string {
 	}
 
 	c := m.resultCols(w)
-	lines := []string{title, s.field.View(), status, partHead(c, w), borderStyle.Render(strings.Repeat("─", w))}
+	query := focusMark(s.field.Focused()) + s.field.View()
+	lines := []string{title, query, status, partHead(c, w), borderStyle.Render(strings.Repeat("─", w))}
 	f := s.filtered()
 	vis := m.searchRows()
 	end := min(len(f), s.top+vis)
@@ -324,7 +389,7 @@ func (m Model) viewSearch(w, h int) string {
 		lines = append(lines, partRow(f[i], c, w, marker, i == s.cursor))
 	}
 	if len(f) == 0 && !s.loading && len(s.results) > 0 {
-		lines = append(lines, dimStyle.Render("  nothing matches the filters — toggle ctrl+f pkg · ctrl+t type · ctrl+s stock"))
+		lines = append(lines, dimStyle.Render("  nothing matches the filters — tab out and toggle f pkg · t type · s stock"))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -343,7 +408,11 @@ func (m Model) sourceChips() string {
 		}
 		out = append(out, dimStyle.Render(p.ID()))
 	}
-	return strings.Join(out, " ") + dimStyle.Render("  ^o")
+	key := "o"
+	if m.search.field.Focused() || m.parts.field.Focused() {
+		key = "^o"
+	}
+	return strings.Join(out, " ") + dimStyle.Render("  "+key)
 }
 
 func (m Model) filterChips() string {
@@ -362,10 +431,14 @@ func (m Model) filterChips() string {
 		chips = append(chips, chip(s.typeOnly, s.kind.String()))
 	}
 	chips = append(chips, chip(s.inStockOnly, "in-stock"))
-	hint := "  ^f ^t ^s"
+	keys := []string{"f", "t", "s"}
 	if src := m.src(); src != nil && src.Caps().BasicFilter {
 		chips = append(chips, chip(s.basicOnly, "basic"))
-		hint += " ^b"
+		keys = append(keys, "b")
+	}
+	hint := "  " + strings.Join(keys, " ")
+	if s.field.Focused() {
+		hint = "  ^" + strings.Join(keys, " ^") // the letters are text right now
 	}
 	return strings.Join(chips, " ") + dimStyle.Render(hint)
 }

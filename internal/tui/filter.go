@@ -273,19 +273,16 @@ func (m Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		return m.closeFilter(true)
-	case "tab":
-		// tab completes the word being typed and leaves the query focused
+	case "tab", "shift+tab":
+		// tab completes the word being typed; with nothing left to complete it
+		// does what tab does everywhere else and hands the table the keyboard
 		if len(sug) > 0 {
 			return m.acceptSuggestion(), nil
 		}
-		return m, nil
+		return m.handBackFromFilter()
 	case "enter":
 		// enter is done: the dropdown closes and the table takes the keyboard
-		mm, cmd := m.closeFilter(false)
-		m = mm.(Model)
-		m.cursor, m.top = 0, 0
-		m.clampScroll()
-		return m, cmd
+		return m.handBackFromFilter()
 	// the arrows walk the dropdown; enter is how you get down into the table
 	case "down", "ctrl+n":
 		if n := shownSuggestions(sug); n > 0 {
@@ -311,6 +308,16 @@ func (m Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.reindex(), nil
 }
 
+// handBackFromFilter closes the dropdown and puts the cursor on the first
+// matching row, which is what you want to look at after narrowing.
+func (m Model) handBackFromFilter() (tea.Model, tea.Cmd) {
+	mm, cmd := m.closeFilter(false)
+	m = mm.(Model)
+	m.cursor, m.top = 0, 0
+	m.clampScroll()
+	return m, cmd
+}
+
 func shownSuggestions(sug []suggestion) int { return min(len(sug), sugMax) }
 
 func (m Model) filterBar(w int) string {
@@ -318,10 +325,10 @@ func (m Model) filterBar(w int) string {
 	// there's always something on screen saying where you're typing.
 	var left string
 	if m.filter.open {
-		left = accentStyle.Render("▸ /") + " " + m.filter.field.View()
+		left = focusMark(true) + accentStyle.Render("/") + " " + m.filter.field.View()
 	} else {
-		left = dimStyle.Render("  /") + " " + subtleStyle.Render(m.filter.f.raw) +
-			dimStyle.Render("   / edit · esc clear")
+		left = focusMark(false) + dimStyle.Render("/") + " " + subtleStyle.Render(m.filter.f.raw) +
+			dimStyle.Render("   tab edit · esc clear")
 	}
 
 	right := subtleStyle.Render(fmt.Sprintf("%d of %d", m.rows(), len(m.items)))

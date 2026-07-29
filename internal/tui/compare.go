@@ -258,14 +258,21 @@ func (m Model) updateCompareKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	vis := m.compareFieldRows()
 	n := len(m.parts.pinned)
 
-	switch msg.String() {
+	key := msg.String()
+	if mm, cmd, done := m.tabSwitchKey(key); done {
+		return mm, cmd
+	}
+	switch key {
 	case "esc":
 		m.mode = modeParts
 		return m, nil
-	case "tab":
-		return m.cycleTab(1)
-	case "shift+tab":
-		return m.cycleTab(-1)
+	// there is one focusable thing here per card, so tab walks them
+	case "tab", "right", "l":
+		m.compare.sel = min(n-1, m.compare.sel+1)
+		_, _, m.compare.first = m.compareLayout(m.contentW())
+	case "shift+tab", "left", "h":
+		m.compare.sel = max(0, m.compare.sel-1)
+		_, _, m.compare.first = m.compareLayout(m.contentW())
 	case "up", "k":
 		m.compare.top = max(0, m.compare.top-1)
 	case "down", "j":
@@ -278,12 +285,6 @@ func (m Model) updateCompareKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.compare.top = 0
 	case "G", "end":
 		m.compare.top = max(0, total-vis)
-	case "left", "h":
-		m.compare.sel = max(0, m.compare.sel-1)
-		_, _, m.compare.first = m.compareLayout(m.contentW())
-	case "right", "l":
-		m.compare.sel = min(n-1, m.compare.sel+1)
-		_, _, m.compare.first = m.compareLayout(m.contentW())
 	case "x":
 		return m.unpinSelected()
 	case "d":
@@ -372,7 +373,7 @@ func (m Model) viewCompare(w, h int) string {
 
 func (m Model) compareLegend() string {
 	return okStyle.Render("▴") + dimStyle.Render(" best of these   ") +
-		dimStyle.Render("←→ column · ↑↓ more fields · x unpin · d datasheet · esc back")
+		dimStyle.Render("tab or ←→ card · ↑↓ more fields · x unpin · d datasheet · esc back")
 }
 
 // compareShared is the top pane: the fields every pinned part answers the same
@@ -481,6 +482,9 @@ func (m Model) compareCard(idx int, diff []cmpRow, top, w, drawH, factH int) []s
 	if title == "" {
 		title = "—"
 	}
+	// The whole frame brightens rather than carrying a ▸ marker: a card is big
+	// enough that its border reads as the focus, and the code stays at a fixed
+	// column so the cards line up.
 	fill := max(w-4-lipgloss.Width(title), 0)
 	out := []string{border.Render("╭ ") + name.Render(title) +
 		border.Render(" "+strings.Repeat("─", fill)+"╮")}

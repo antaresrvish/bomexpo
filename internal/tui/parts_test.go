@@ -21,10 +21,18 @@ func partsModel(t *testing.T, results ...part.Part) Model {
 	t.Helper()
 	m := New(Options{})
 	m.w, m.h = 140, 40
-	m.mode = modeParts
 	m.parts.results = results
 	m.parts.total = len(results)
+	mm, _ := m.gotoTab(modeParts) // enters with the query focused, like the app does
+	m = mm.(Model)
 	return m
+}
+
+// listFocus takes the keyboard off the query, the state where letters are
+// commands.
+func listFocus(m Model) Model {
+	mm, _ := m.updatePartsKey(key("tab"))
+	return mm.(Model)
 }
 
 func TestTogglePinAndCap(t *testing.T) {
@@ -202,11 +210,38 @@ func TestPartsInStockFilter(t *testing.T) {
 	if got := len(m.parts.filtered()); got != 2 {
 		t.Fatalf("unfiltered = %d, want 2", got)
 	}
-	mm, _ := m.updatePartsKey(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	// ^s works while typing, and a plain s once the list has focus
+	for _, k := range []tea.KeyPressMsg{{Code: 's', Mod: tea.ModCtrl}, key("tab"), key("s")} {
+		mm, _ := m.updatePartsKey(k)
+		m = mm.(Model)
+	}
+	if got := len(m.parts.filtered()); got != 2 {
+		t.Fatalf("two toggles should cancel out, got %d rows", got)
+	}
+	mm, _ := m.updatePartsKey(key("s"))
 	m = mm.(Model)
 	f := m.parts.filtered()
 	if len(f) != 1 || f[0].Code != "C2" {
 		t.Errorf("in-stock filter gave %+v, want just C2", f)
+	}
+}
+
+func TestPartsListFocusTreatsLettersAsCommands(t *testing.T) {
+	m := listFocus(partsModel(t, lcscPart("C1", "A", 100, 0.01)))
+	for _, k := range []string{"p"} { // pin without a modifier
+		mm, _ := m.updatePartsKey(key(k))
+		m = mm.(Model)
+	}
+	if len(m.parts.pinned) != 1 {
+		t.Fatalf("p should have pinned the row, pinned = %d", len(m.parts.pinned))
+	}
+	if m.parts.field.Value() != "" {
+		t.Errorf("a command letter leaked into the query: %q", m.parts.field.Value())
+	}
+	// / hands the keyboard back
+	mm, _ := m.updatePartsKey(key("/"))
+	if !mm.(Model).parts.field.Focused() {
+		t.Error("/ should focus the query")
 	}
 }
 

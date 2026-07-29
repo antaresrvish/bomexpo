@@ -42,8 +42,13 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.filter.open {
 		return m.updateFilterKey(msg)
 	}
-	switch msg.String() {
-	case "/":
+	key := msg.String()
+	if mm, cmd, done := m.tabSwitchKey(key); done {
+		return mm, cmd
+	}
+	switch key {
+	// tab is the focus key: from the table it goes to the query
+	case "/", "tab", "shift+tab":
 		return m.openFilter()
 	case "esc":
 		if m.filter.f.active() {
@@ -52,16 +57,6 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "q":
 		return m, tea.Quit
-	case "tab":
-		return m.cycleTab(1)
-	case "shift+tab":
-		return m.cycleTab(-1)
-	case "1", "3", "4", "5":
-		// tab by number; 2 is Components itself, so it stays unbound
-		if md, ok := m.tabMode(int(msg.String()[0] - '0')); ok {
-			return m.gotoTab(md)
-		}
-		return m, nil
 	case "up", "k":
 		m.cursor = max(0, m.cursor-1)
 	case "down", "j":

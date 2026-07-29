@@ -316,18 +316,21 @@ func (m Model) prefillCmd() tea.Cmd {
 }
 
 func (m Model) View() tea.View {
-	if m.w == 0 {
-		m.w, m.h = 110, 34
-	}
-	ch := m.contentH()
-	title, body := m.titleBody()
-
-	screen := lipgloss.JoinVertical(lipgloss.Left,
-		m.tabBar(), panelBox(title, body, m.w, ch), m.bottomBar())
-	v := tea.NewView(screen)
+	v := tea.NewView(m.screen())
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	return v
+}
+
+// screen is the whole frame as text: tab bar, panel, bottom bar. View wraps it,
+// and tests measure it.
+func (m Model) screen() string {
+	if m.w == 0 {
+		m.w, m.h = 110, 34
+	}
+	title, body := m.titleBody()
+	return lipgloss.JoinVertical(lipgloss.Left,
+		m.tabBar(), panelBox(title, body, m.w, m.contentH()), m.bottomBar())
 }
 
 // titleBody renders the current mode's panel. It's the single place that maps a
@@ -493,7 +496,9 @@ func (m Model) bottomBar() string {
 	default:
 		left = subtleStyle.Render(m.status)
 	}
-	help := m.helpLine()
+	// The bar has to fit the terminal exactly: one column over and every line of
+	// the view gets padded to match, which shifts the whole page.
+	help := m.helpLine(m.w - lipgloss.Width(left) - 2)
 	gap := m.w - lipgloss.Width(left) - lipgloss.Width(help) - 1
 	if gap < 1 {
 		gap = 1
@@ -501,11 +506,17 @@ func (m Model) bottomBar() string {
 	return " " + left + spaces(gap) + help
 }
 
-func (m Model) helpLine() string {
+// helpLine lists the keys for whatever has focus, dropping hints off the end
+// until they fit the room left over.
+func (m Model) helpLine(budget int) string {
 	var hints [][2]string
 	switch m.mode {
 	case modeLoad:
-		hints = [][2]string{{"tab", "complete"}, {"enter", "open"}, {"ctrl+c", "quit"}}
+		if m.load.cursor >= 0 {
+			hints = [][2]string{{"↑↓", "pick"}, {"enter", "open"}, {"tab", "back to the path"}}
+			break
+		}
+		hints = [][2]string{{"↓", "browse"}, {"tab", "complete"}, {"enter", "open"}, {"ctrl+c", "quit"}}
 	case modeTable:
 		if m.filter.open {
 			// the dropdown shows the keys, so the hint is about driving it
@@ -513,34 +524,61 @@ func (m Model) helpLine() string {
 				{"enter", "go to the rows"}, {"esc", "clear"}}
 			break
 		}
-		hints = [][2]string{{"enter", "assign"}, {"a", "auto"}, {"/", "filter"}, {"t/b/i", "3D"}, {"o", "rotate"}, {"w", "save"}, {"tab", "switch"}}
+		hints = [][2]string{{"enter", "assign"}, {"a", "auto"}, {"tab", "filter"}, {"n", "nets"},
+			{"t/b/i", "3D"}, {"w", "save"}, tabHint(true)}
 	case modeSearch:
-		hints = [][2]string{{"type", "search"}, {"↑↓", "results"}, {"enter", "pick"}, {"^f/^t/^s", "filters"}}
-		if len(m.srcs) > 1 {
-			hints = append(hints, [2]string{"^o", "source"})
+		if m.search.field.Focused() {
+			hints = [][2]string{{"↑↓", "results"}, {"enter", "pick"}, {"^f/^t/^s", "filters"},
+				tabHint(false), {"esc", "back"}}
+			break
 		}
-		hints = append(hints, [2]string{"esc", "back"})
+		hints = [][2]string{{"↑↓", "results"}, {"enter", "pick"}, {"f/t/s", "filters"}, {"d", "datasheet"}}
+		if len(m.srcs) > 1 {
+			hints = append(hints, [2]string{"o", "source"})
+		}
+		hints = append(hints, [2]string{"/", "search"}, [2]string{"esc", "back"})
 	case modeParts:
-		hints = [][2]string{{"type", "search"}, {"↑↓", "results"}, {"enter", "pin"}, {"^d", "datasheet"}}
-		if len(m.srcs) > 1 {
-			hints = append(hints, [2]string{"^o", "source"})
+		if m.parts.field.Focused() {
+			hints = [][2]string{{"↑↓", "results"}, {"enter", "pin"}, {"^d", "datasheet"},
+				tabHint(false)}
+			break
 		}
-		hints = append(hints, [2]string{"tab", "switch"})
+		hints = [][2]string{{"↑↓", "results"}, {"p", "pin"}, {"c", "compare"}, {"d", "datasheet"}, {"s", "stock"}}
+		if len(m.srcs) > 1 {
+			hints = append(hints, [2]string{"o", "source"})
+		}
+		hints = append(hints, [2]string{"/", "search"}, tabHint(true))
 	case modeCompare:
-		hints = [][2]string{{"←→", "column"}, {"↑↓", "scroll"}, {"x", "unpin"}, {"d", "datasheet"}, {"esc", "back"}}
+		hints = [][2]string{{"tab", "card"}, {"↑↓", "scroll"}, {"x", "unpin"}, {"d", "datasheet"},
+			tabHint(true), {"esc", "back"}}
 	case modeNets:
-		hints = [][2]string{{"type", "narrow"}, {"↑↓", "nets"}, {"enter", "filter by it"}, {"esc", "back"}}
+		if m.nets.field.Focused() {
+			hints = [][2]string{{"↑↓", "nets"}, {"enter", "filter by it"}, tabHint(false),
+				{"esc", "back"}}
+			break
+		}
+		hints = [][2]string{{"↑↓", "nets"}, {"enter", "filter by it"}, {"/", "narrow"}, {"esc", "back"}}
 	case modeCheck:
 		if m.check.out.Focused() {
 			hints = [][2]string{{"type", "output path"}, {"enter", "export"}, {"esc", "done"}}
 			break
 		}
 		hints = [][2]string{{"↑↓", "issues"}, {"+-", "zoom"}, {"←→", "pan"}, {"t/b/i", "3D"},
-			{"e", "edit path"}, {"enter", "export"}, {"esc", "back"}}
+			{"tab", "output path"}, {"enter", "export"}, tabHint(true), {"esc", "back"}}
 	}
-	parts := make([]string, len(hints))
-	for i, h := range hints {
-		parts[i] = keyStyle.Render(h[0]) + " " + descStyle.Render(h[1])
+	var parts []string
+	width := 0
+	for _, h := range hints {
+		one := keyStyle.Render(h[0]) + " " + descStyle.Render(h[1])
+		next := width + lipgloss.Width(one)
+		if len(parts) > 0 {
+			next += 2 // the separator
+		}
+		if len(parts) > 0 && next > budget {
+			break // the earlier hints matter more than the later ones
+		}
+		parts = append(parts, one)
+		width = next
 	}
 	return strings.Join(parts, sepStyle.Render("  "))
 }

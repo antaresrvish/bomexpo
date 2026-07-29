@@ -220,66 +220,135 @@ func (m Model) landsCmd(code string) tea.Cmd {
 }
 
 func (m Model) updatePartsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	s := &m.parts
-	switch msg.String() {
+	key := msg.String()
+	typing := m.parts.field.Focused()
+
+	// Keys that work whichever pane has focus: the arrows always drive the list,
+	// and the ctrl forms of every command stay available so nothing has to be
+	// relearned.
+	switch key {
 	case "esc":
-		s.field.Blur()
+		if typing {
+			m.parts.field.Blur() // one esc leaves the field, the next leaves the tab
+			return m, nil
+		}
 		m.mode = modeTable
 		return m, nil
 	case "tab":
-		s.field.Blur()
-		return m.cycleTab(1)
+		return m.togglePartsFocus()
 	case "shift+tab":
-		s.field.Blur()
-		return m.cycleTab(-1)
+		return m.togglePartsFocus()
 	case "enter":
 		return m.togglePin()
 	case "down", "ctrl+n":
-		s.cursor = min(len(s.filtered())-1, s.cursor+1)
-		s.clamp(m.partsRows())
+		m.parts.cursor = min(len(m.parts.filtered())-1, m.parts.cursor+1)
+		m.parts.clamp(m.partsRows())
 		return m, nil
 	case "up", "ctrl+p":
-		s.cursor = max(0, s.cursor-1)
-		s.clamp(m.partsRows())
+		m.parts.cursor = max(0, m.parts.cursor-1)
+		m.parts.clamp(m.partsRows())
 		return m, nil
 	case "ctrl+s":
-		s.inStockOnly = !s.inStockOnly
-		s.cursor, s.top = 0, 0
-		return m, nil
+		return m.togglePartsStock()
 	case "ctrl+d":
-		// shadows the field's forward-delete, which no one needs in a search box
-		f := s.filtered()
-		if s.cursor >= 0 && s.cursor < len(f) && f[s.cursor].Datasheet != "" {
-			openExternal(f[s.cursor].Datasheet)
+		return m.openPartsDatasheet()
+	case "ctrl+o":
+		return m.switchPartsSource()
+	case "ctrl+b":
+		return m.togglePartsBasic()
+	}
+
+	if typing {
+		before := m.parts.field.Value()
+		m.parts.field.Update(msg)
+		if m.parts.field.Value() != before {
+			m.parts.debounce++
+			return m, partsDebounceCmd(m.parts.debounce)
 		}
 		return m, nil
-	case "ctrl+o":
-		if len(m.srcs) < 2 {
-			return m, nil
-		}
-		m = m.nextSrc()
-		if src := m.src(); src != nil && !src.Caps().BasicFilter {
-			m.parts.basicOnly = false
-		}
-		m.parts.results, m.parts.total = nil, 0
-		m.flash = "source → " + m.srcLabel()
-		return m.researchParts()
-	case "ctrl+b":
-		src := m.src()
-		if src == nil || !src.Caps().BasicFilter {
-			m.flash = fmt.Sprintf("%s has no basic library — switch source with ^o", m.srcLabel())
-			return m, nil
-		}
-		s.basicOnly = !s.basicOnly
-		return m.researchParts()
 	}
-	before := s.field.Value()
-	s.field.Update(msg)
-	if s.field.Value() != before {
-		s.debounce++
-		return m, partsDebounceCmd(s.debounce)
+
+	// With the list focused the letters are commands, not text.
+	if mm, cmd, done := m.tabSwitchKey(key); done {
+		return mm, cmd
+	}
+	switch key {
+	case "/", "i":
+		m.parts.field.Focus()
+		return m, nil
+	case "p", " ":
+		return m.togglePin()
+	case "c":
+		return m.gotoTab(modeCompare)
+	case "d":
+		return m.openPartsDatasheet()
+	case "s":
+		return m.togglePartsStock()
+	case "b":
+		return m.togglePartsBasic()
+	case "o":
+		return m.switchPartsSource()
+	case "g", "home":
+		m.parts.cursor = 0
+		m.parts.clamp(m.partsRows())
+	case "G", "end":
+		m.parts.cursor = max(0, len(m.parts.filtered())-1)
+		m.parts.clamp(m.partsRows())
+	case "pgup":
+		m.parts.cursor = max(0, m.parts.cursor-m.partsRows())
+		m.parts.clamp(m.partsRows())
+	case "pgdown":
+		m.parts.cursor = min(len(m.parts.filtered())-1, m.parts.cursor+m.partsRows())
+		m.parts.clamp(m.partsRows())
 	}
 	return m, nil
+}
+
+// togglePartsFocus hands the keyboard between the query and the results.
+func (m Model) togglePartsFocus() (tea.Model, tea.Cmd) {
+	if m.parts.field.Focused() {
+		m.parts.field.Blur()
+	} else {
+		m.parts.field.Focus()
+	}
+	return m, nil
+}
+
+func (m Model) togglePartsStock() (tea.Model, tea.Cmd) {
+	m.parts.inStockOnly = !m.parts.inStockOnly
+	m.parts.cursor, m.parts.top = 0, 0
+	return m, nil
+}
+
+func (m Model) openPartsDatasheet() (tea.Model, tea.Cmd) {
+	f := m.parts.filtered()
+	if m.parts.cursor >= 0 && m.parts.cursor < len(f) && f[m.parts.cursor].Datasheet != "" {
+		openExternal(f[m.parts.cursor].Datasheet)
+	}
+	return m, nil
+}
+
+func (m Model) switchPartsSource() (tea.Model, tea.Cmd) {
+	if len(m.srcs) < 2 {
+		return m, nil
+	}
+	m = m.nextSrc()
+	if src := m.src(); src != nil && !src.Caps().BasicFilter {
+		m.parts.basicOnly = false
+	}
+	m.parts.results, m.parts.total = nil, 0
+	m.flash = "source → " + m.srcLabel()
+	return m.researchParts()
+}
+
+func (m Model) togglePartsBasic() (tea.Model, tea.Cmd) {
+	src := m.src()
+	if src == nil || !src.Caps().BasicFilter {
+		m.flash = fmt.Sprintf("%s has no basic library — switch source with o", m.srcLabel())
+		return m, nil
+	}
+	m.parts.basicOnly = !m.parts.basicOnly
+	return m.researchParts()
 }
 
 func (m Model) mouseParts(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) {
@@ -318,8 +387,8 @@ func (m Model) mouseParts(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 func (m Model) viewParts(w, h int) string {
 	s := m.parts
 
-	title := subtleStyle.Render("browse ") + accentStyle.Render(m.srcLabel()) +
-		subtleStyle.Render("  pin parts to compare them")
+	title := focusMark(!s.field.Focused()) + subtleStyle.Render("browse ") +
+		accentStyle.Render(m.srcLabel()) + subtleStyle.Render("  pin parts to compare them")
 	if chips := m.sourceChips(); chips != "" {
 		gap := w - lipgloss.Width(title) - lipgloss.Width(chips)
 		if gap < 1 {
@@ -340,7 +409,8 @@ func (m Model) viewParts(w, h int) string {
 	}
 
 	c := m.resultCols(w)
-	lines := []string{title, s.field.View(), status, partHead(c, w), borderStyle.Render(strings.Repeat("─", w))}
+	query := focusMark(s.field.Focused()) + s.field.View()
+	lines := []string{title, query, status, partHead(c, w), borderStyle.Render(strings.Repeat("─", w))}
 
 	vis := m.partsRows()
 	end := min(len(f), s.top+vis)
@@ -370,14 +440,18 @@ func (m Model) viewParts(w, h int) string {
 
 func (m Model) pinnedFooter(w int) string {
 	if len(m.parts.pinned) == 0 {
-		return dimStyle.Render("  enter pin · ^d datasheet · ^s stock · nothing pinned yet")
+		tabs := "tab focuses the query"
+		if m.parts.field.Focused() {
+			tabs = "tab leaves the query"
+		}
+		return dimStyle.Render("  enter pin · " + tabs + " · nothing pinned yet")
 	}
 	codes := make([]string, 0, len(m.parts.pinned))
 	for _, p := range m.parts.pinned {
 		codes = append(codes, libCell(p.Lib, p.Code))
 	}
 	left := accentStyle.Render("  ◆ pinned ") + strings.Join(codes, dimStyle.Render(" · "))
-	right := dimStyle.Render("enter pin/unpin · ^d datasheet")
+	right := dimStyle.Render("enter pin/unpin · d datasheet")
 	if len(m.parts.pinned) >= 2 {
 		right = okStyle.Render("Compare tab ready") + dimStyle.Render(" · tab to open")
 	}
@@ -397,13 +471,18 @@ func (m Model) partsChips() string {
 		return dimStyle.Render("[" + label + "]")
 	}
 	chips := []string{chip(s.inStockOnly, "in-stock")}
-	hint := "  ^s"
+	keys := []string{"s"}
 	if src := m.src(); src != nil && src.Caps().BasicFilter {
 		chips = append(chips, chip(s.basicOnly, "basic"))
-		hint += " ^b"
+		keys = append(keys, "b")
 	}
 	if len(m.srcs) > 1 {
-		hint += " ^o"
+		keys = append(keys, "o")
+	}
+	hint := "  " + strings.Join(keys, " ")
+	if s.field.Focused() {
+		// the letters are text right now, so name the forms that still work
+		hint = "  ^" + strings.Join(keys, " ^")
 	}
 	return strings.Join(chips, " ") + dimStyle.Render(hint)
 }
