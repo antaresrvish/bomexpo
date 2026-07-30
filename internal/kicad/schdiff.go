@@ -78,7 +78,13 @@ type SchDiff struct {
 	// unread carries the sub-sheets the schematic named but could not be read, so a
 	// comparison over half a design can't pass for a whole one.
 	unread []string
+	// notCompared names the columns the BOM never supplied. Comparing against a
+	// column that isn't there would report every single row as a mismatch.
+	notCompared []string
 }
+
+// NotCompared names the fields the BOM carried no data for.
+func (d SchDiff) NotCompared() []string { return d.notCompared }
 
 // Skipped names the sub-sheets that went unread.
 func (d SchDiff) Skipped() []string { return d.unread }
@@ -128,7 +134,14 @@ func DiffSchematicBOM(sc *Schematic, items []Item) SchDiff {
 	}
 
 	byBOM := map[string]Item{}
+	hasValues, hasFootprints := false, false
 	for _, it := range items {
+		if strings.TrimSpace(it.Value) != "" {
+			hasValues = true
+		}
+		if strings.TrimSpace(it.Footprint) != "" {
+			hasFootprints = true
+		}
 		for _, ref := range it.Designators {
 			r := upRef(ref)
 			if r == "" {
@@ -137,6 +150,12 @@ func DiffSchematicBOM(sc *Schematic, items []Item) SchDiff {
 			byBOM[r] = it
 			d.BOMCount++
 		}
+	}
+	if len(items) > 0 && !hasValues {
+		d.notCompared = append(d.notCompared, "value")
+	}
+	if len(items) > 0 && !hasFootprints {
+		d.notCompared = append(d.notCompared, "footprint")
 	}
 
 	for ref, s := range bySch {
@@ -160,13 +179,13 @@ func DiffSchematicBOM(sc *Schematic, items []Item) SchDiff {
 			})
 			clean = false
 		}
-		if !sameValue(s.Value, it.Value) {
+		if hasValues && !sameValue(s.Value, it.Value) {
 			d.Findings = append(d.Findings, Finding{
 				Kind: DiffValue, Ref: s.Ref, Sch: dash(s.Value), BOM: dash(it.Value),
 			})
 			clean = false
 		}
-		if !sameFootprint(s.Footprint, it.Footprint) {
+		if hasFootprints && !sameFootprint(s.Footprint, it.Footprint) {
 			d.Findings = append(d.Findings, Finding{
 				Kind: DiffFootprint, Ref: s.Ref, Sch: dash(s.Footprint), BOM: dash(it.Footprint),
 			})

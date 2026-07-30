@@ -311,6 +311,9 @@ func (m Model) diffCounts(w int) string {
 	for _, sh := range d.Skipped() {
 		parts = append(parts, badStyle.Render("unread sheet "+sh))
 	}
+	if nc := d.NotCompared(); len(nc) > 0 {
+		parts = append(parts, warnStyle.Render("no "+strings.Join(nc, "/")+" column in that bom"))
+	}
 	if len(parts) == 0 {
 		return dimStyle.Render(fmt.Sprintf("%d symbols · %d bom designators", d.SchCount, d.BOMCount))
 	}

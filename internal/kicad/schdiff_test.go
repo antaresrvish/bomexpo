@@ -257,3 +257,57 @@ func TestDiffMatchesRefsCaseInsensitively(t *testing.T) {
 		t.Errorf("case difference produced %+v", d.Findings)
 	}
 }
+
+// A BOM that carries designators but no value or footprint column must not report
+// every single row as a mismatch — a missing column is nothing to compare against.
+func TestDiffSkipsColumnsTheBOMNeverHad(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "refs-only.csv")
+	if err := os.WriteFile(p, []byte("Designator,Quantity\nR1,1\nR2,1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items, err := ImportBOM(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := loadFixture(t, schFixture(t, "novalue",
+		"R1|10k|R_0603_1608Metric",
+		"R2|1k|R_0603_1608Metric",
+	))
+	d := DiffSchematicBOM(sc, items)
+	if len(d.Findings) != 0 {
+		t.Errorf("a missing column produced %d findings: %+v", len(d.Findings), d.Findings)
+	}
+	if d.Matched != 2 {
+		t.Errorf("Matched = %d, want 2", d.Matched)
+	}
+	// but it has to say which columns it could not check
+	if got := strings.Join(d.NotCompared(), ","); got != "value,footprint" {
+		t.Errorf("NotCompared = %q, want value,footprint", got)
+	}
+}
+
+// A BOM that does carry values still gets them compared, and still understands the
+// notations a real export uses.
+func TestDiffComparesValuesWhenThePresent(t *testing.T) {
+	sc := loadFixture(t, schFixture(t, "vals",
+		"R1|16.2k|R_0603_1608Metric",
+		"R2|36.5k|R_0603_1608Metric",
+		"C1|100nF|C_0603_1608Metric|Device:C",
+	))
+	d := DiffSchematicBOM(sc, []Item{
+		bomItem("R1", "1M", "R_0603_1608Metric", ""),    // a real mismatch
+		bomItem("R2", "36k5", "R_0603_1608Metric", ""),  // rkm notation, same value
+		bomItem("C1", "0.1uF", "C_0603_1608Metric", ""), // same value, other unit
+	})
+	if len(d.NotCompared()) != 0 {
+		t.Fatalf("values were present but skipped: %v", d.NotCompared())
+	}
+	got := kindsOf(d)
+	if strings.Join(got[DiffValue], ",") != "R1" {
+		t.Errorf("value findings = %v, want just R1", got[DiffValue])
+	}
+	if d.Matched != 2 {
+		t.Errorf("Matched = %d, want 2", d.Matched)
+	}
+}
