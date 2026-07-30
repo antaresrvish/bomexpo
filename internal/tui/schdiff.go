@@ -55,6 +55,9 @@ type diffState struct {
 	cursor int
 	top    int
 	hoff   int // horizontal scroll, since the row is wider than most terminals
+	// ref is the side the other two are measured against. The board is the default:
+	// it is what gets manufactured and what bomexpo exports from.
+	ref kicad.Side
 	// show is how much of the comparison is on screen. It starts on everything:
 	// a report that lists only problems looks identical to one that ran nothing.
 	show diffShow
@@ -80,7 +83,10 @@ func (v diffShow) String() string {
 }
 
 func newDiffState() diffState {
-	return diffState{field: newField("› ", "path to the bom csv to compare against…", 56)}
+	return diffState{
+		field: newField("› ", "path to the bom csv to compare against…", 56),
+		ref:   kicad.SidePCB,
+	}
 }
 
 // rows is the comparison as filtered.
@@ -124,7 +130,7 @@ func (m Model) schPath() string {
 }
 
 func (m Model) diffCmd(bomPath string) tea.Cmd {
-	sch, pcb := m.schPath(), m.pcbPath
+	sch, pcb, ref := m.schPath(), m.pcbPath, m.diff.ref
 	return func() tea.Msg {
 		if sch == "" {
 			return diffDoneMsg{err: fmt.Errorf("open a design first — the schematic is found beside it")}
@@ -147,7 +153,7 @@ func (m Model) diffCmd(bomPath string) tea.Cmd {
 		if err != nil {
 			return diffDoneMsg{err: err}
 		}
-		res := kicad.Compare(sc, pcbItems, bomItems)
+		res := kicad.Compare(sc, pcbItems, bomItems, ref)
 		res.PCBPath, res.BOMPath = pcb, bomPath
 		return diffDoneMsg{res: res}
 	}
@@ -228,6 +234,13 @@ func (m Model) updateDiffKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		m.diff.show = (m.diff.show + 1) % 3
 		m.diff.cursor, m.diff.top = 0, 0
+	case "m":
+		// which file is right is the user's call, so the reference column moves
+		m.diff.ref = (m.diff.ref + 1) % 3
+		if m.diff.ran {
+			return m.startDiff()
+		}
+		return m, nil
 	case "left", "h":
 		m.diff.hoff = clampInt(m.diff.hoff-8, 0, m.diffMaxHoff())
 	case "right", "l":
@@ -313,17 +326,32 @@ func diffRowStyle(r kicad.Row) lipgloss.Style {
 	return warnStyle
 }
 
-// diffMark is the gutter: the row's verdict at a glance.
-func diffMark(r kicad.Row) string {
+// diffGlyph is the row's verdict as one plain character.
+func diffGlyph(r kicad.Row) string {
+	ref := r.Cell(r.Ref)
 	switch {
 	case r.Severe():
-		return badStyle.Render("! ")
+		return "!"
 	case !r.Agrees():
-		return warnStyle.Render("~ ")
-	case r.Sch.DNP || r.Sch.OffBOM:
-		return dimStyle.Render("∅ ")
+		return "~"
+	case ref.DNP || ref.OffBOM:
+		return "∅"
 	}
-	return okStyle.Render("✓ ")
+	return "✓"
+}
+
+// diffMark is the gutter for an unselected row, coloured by verdict.
+func diffMark(r kicad.Row) string {
+	g := diffGlyph(r) + " "
+	switch {
+	case r.Severe():
+		return badStyle.Render(g)
+	case !r.Agrees():
+		return warnStyle.Render(g)
+	case g[0] == '\xe2': // the ∅ for a part left out on purpose
+		return dimStyle.Render(g)
+	}
+	return okStyle.Render(g)
 }
 
 func (m Model) viewDiff(w, h int) string {
@@ -402,7 +430,9 @@ func (m Model) diffTable(h int) (head, body []string) {
 	head = []string{
 		crop(colHeadStyle.Render(padRender(spaces(2)+strings.Join([]string{
 			pad("REF", c.ref), pad("WHAT", c.what),
-			pad("SCHEMATIC", c.side), pad("PCB", c.side), pad("BOM", c.side),
+			pad(diffHead("SCHEMATIC", kicad.SideSch, s.ref), c.side),
+			pad(diffHead("PCB", kicad.SidePCB, s.ref), c.side),
+			pad(diffHead("BOM", kicad.SideBOM, s.ref), c.side),
 		}, " │ "), full))) + " ",
 		crop(borderStyle.Render(strings.Repeat("─", full))) + " ",
 	}
@@ -435,14 +465,17 @@ func (m Model) diffTable(h int) (head, body []string) {
 // diffRowView renders one row at its natural width.
 func (m Model) diffRowView(r kicad.Row, c diffCols, sep string, cursor bool) string {
 	plain := []string{
-		pad(trunc(r.Ref, c.ref), c.ref),
+		pad(trunc(r.Designator, c.ref), c.ref),
 		pad(trunc(r.What(), c.what), c.what),
 		pad(trunc(r.Cell(kicad.SideSch).Text(), c.side), c.side),
 		pad(trunc(r.Cell(kicad.SidePCB).Text(), c.side), c.side),
 		pad(trunc(r.Cell(kicad.SideBOM).Text(), c.side), c.side),
 	}
 	if cursor {
-		return selRowStyle.Render(padRender(diffMark(r)+strings.Join(plain, "   "), c.fullWidth()))
+		// The mark has to be unstyled here: an inner colour emits its own reset and
+		// breaks the row highlight from that column on, which is why the Components
+		// table draws a plain ▶ on its cursor row too.
+		return selRowStyle.Render(padRender("▶"+diffGlyph(r)+strings.Join(plain, "   "), c.fullWidth()))
 	}
 	ref := accentStyle
 	if r.Agrees() {
@@ -478,13 +511,22 @@ func (m Model) diffVScroll(total, vis int) []string {
 	return out
 }
 
-// diffCell colours one side's cell: the schematic reads as the reference, and only
+// diffHead marks the reference column, so which side everything is measured
+// against is on screen rather than assumed.
+func diffHead(label string, side, ref kicad.Side) string {
+	if side == ref {
+		return label + " ◆"
+	}
+	return label
+}
+
+// diffCell colours one side's cell: the reference reads as the baseline, and only
 // the sides that deviate from it light up, so the eye lands on the cell to read.
 func diffCell(r kicad.Row, side kicad.Side, cell string) string {
 	if r.Agrees() {
 		return dimStyle.Render(cell)
 	}
-	if side == kicad.SideSch {
+	if side == r.Ref {
 		return okStyle.Render(cell)
 	}
 	if r.SideOK(side) {
@@ -566,8 +608,8 @@ func (m Model) diffFooter(w int) string {
 	if m.diff.field.Focused() {
 		return dimStyle.Render("  tab complete · enter compare · esc leaves the path")
 	}
-	left := dimStyle.Render("  tab path · enter compare · s showing ") +
-		accentStyle.Render(m.diff.show.String())
+	left := dimStyle.Render("  tab path · s ") + accentStyle.Render(m.diff.show.String()) +
+		dimStyle.Render(" · m against ") + accentStyle.Render(m.diff.ref.String())
 	right := dimStyle.Render(fmt.Sprintf("%d of %d · ↑↓ rows · ←→ columns · esc back",
 		len(m.diff.rows()), len(m.diff.res.Rows)))
 	// The counts matter more than the key list when it's tight.

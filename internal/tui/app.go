@@ -611,7 +611,7 @@ func (m Model) helpLine(budget int) string {
 			break
 		}
 		hints = [][2]string{{"↑↓", "move"}, {"←→", "columns"}, {"s", m.diff.show.String()},
-			{"tab", "bom path"}, {"enter", "compare"}, tabHint(true), {"esc", "back"}}
+			{"m", "vs " + m.diff.ref.String()}, {"tab", "bom path"}, tabHint(true), {"esc", "back"}}
 	}
 	var parts []string
 	width := 0

@@ -10,9 +10,12 @@ import (
 )
 
 // Comparing three descriptions of the same board: the schematic, the board file,
-// and a BOM some other tool produced. The schematic is taken as the truth — it is
-// where a designer changes a value — so the board and the BOM are each measured
-// against it.
+// and a BOM some other tool produced.
+//
+// Which one is right is the user's call, not ours, so the reference side is a
+// parameter. The board is the usual answer — it is what gets manufactured, what
+// bomexpo exports from, and where it writes part codes — but a designer who has
+// just corrected the schematic wants that to be the reference instead.
 
 // Side names one of the three descriptions.
 type Side int
@@ -31,6 +34,14 @@ func (s Side) String() string {
 		return "bom"
 	}
 	return "schematic"
+}
+
+// short is the side's name at column width.
+func (s Side) short() string {
+	if s == SideSch {
+		return "sch"
+	}
+	return s.String()
 }
 
 // DiffKind is what went wrong for one designator on one side.
@@ -125,10 +136,12 @@ func (c Cell) Text() string {
 // that says "all good" and lists nothing is indistinguishable from one that ran
 // nothing.
 type Row struct {
-	Ref           string
+	Designator    string
 	Sch, PCB, BOM Cell
 	Kinds         []DiffKind
 	Sides         []Side // the side each kind belongs to, in step with Kinds
+	// Ref is the side the others were measured against.
+	Ref Side
 }
 
 // Cell returns one side's reading.
@@ -156,9 +169,9 @@ func (r Row) Severe() bool {
 	return false
 }
 
-// SideOK reports whether a side agrees with the schematic, for colouring its cell.
+// SideOK reports whether a side agrees with the reference, for colouring its cell.
 func (r Row) SideOK(s Side) bool {
-	if s == SideSch {
+	if s == r.Ref {
 		return true
 	}
 	for _, dev := range r.Sides {
@@ -172,22 +185,25 @@ func (r Row) SideOK(s Side) bool {
 // What names the disagreements, or says the designator is fine.
 func (r Row) What() string {
 	if len(r.Kinds) == 0 {
-		switch {
-		case r.Sch.DNP:
+		switch ref := r.Cell(r.Ref); {
+		case ref.DNP:
 			return "dnp, left out"
-		case r.Sch.OffBOM:
+		case ref.OffBOM:
 			return "off the bom"
 		}
 		return "agrees"
 	}
-	// When the board and the BOM both differ from the schematic in the same way and
-	// agree with each other, the schematic is the odd one out — saying "pcb X + bom
-	// X" would blame the two sides that actually match.
+	// When both other sides differ from the reference in the same way and agree with
+	// each other, the reference is the odd one out — naming them both would blame
+	// the two sides that actually match.
+	others := r.others()
 	onBoth := map[DiffKind]bool{}
-	for _, k := range []DiffKind{DiffValue, DiffFootprint, DiffCode} {
-		if r.has(k, SidePCB) && r.has(k, SideBOM) &&
-			strings.EqualFold(r.field(k, SidePCB), r.field(k, SideBOM)) {
-			onBoth[k] = true
+	if len(others) == 2 {
+		for _, k := range []DiffKind{DiffValue, DiffFootprint, DiffCode} {
+			if r.has(k, others[0]) && r.has(k, others[1]) &&
+				strings.EqualFold(r.field(k, others[0]), r.field(k, others[1])) {
+				onBoth[k] = true
+			}
 		}
 	}
 
@@ -196,7 +212,7 @@ func (r Row) What() string {
 	for i, k := range r.Kinds {
 		label := r.Sides[i].String() + " " + k.String()
 		if onBoth[k] {
-			label = "sch " + k.String() + " stale"
+			label = r.Ref.short() + " " + k.String() + " stale"
 		}
 		if seen[label] {
 			continue
@@ -217,12 +233,27 @@ func (r Row) has(k DiffKind, s Side) bool {
 	return false
 }
 
-// SchStale reports whether the board and the BOM agree with each other and differ
-// from the schematic, which points the fix at the schematic rather than at them.
-func (r Row) SchStale() bool {
+// others are the two sides that were measured against the reference.
+func (r Row) others() []Side {
+	var out []Side
+	for _, s := range []Side{SideSch, SidePCB, SideBOM} {
+		if s != r.Ref {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// RefStale reports whether both other sides agree with each other and differ from
+// the reference, which points the fix at the reference rather than at them.
+func (r Row) RefStale() bool {
+	o := r.others()
+	if len(o) != 2 {
+		return false
+	}
 	for _, k := range []DiffKind{DiffValue, DiffFootprint, DiffCode} {
-		if r.has(k, SidePCB) && r.has(k, SideBOM) &&
-			strings.EqualFold(r.field(k, SidePCB), r.field(k, SideBOM)) {
+		if r.has(k, o[0]) && r.has(k, o[1]) &&
+			strings.EqualFold(r.field(k, o[0]), r.field(k, o[1])) {
 			return true
 		}
 	}
@@ -244,6 +275,8 @@ type SchDiff struct {
 	// reason.
 	SkippedDNP int
 	unread     []string
+	// ref is the side the others were measured against.
+	ref Side
 	// codeRef is the side part codes were measured against.
 	codeRef Side
 	// notCompared names the columns a side never supplied. Comparing against a
@@ -259,6 +292,9 @@ func (d SchDiff) NotCompared() []string { return d.notCompared }
 
 // CodeRef is the side part codes were compared against.
 func (d SchDiff) CodeRef() Side { return d.codeRef }
+
+// Ref is the side everything else was measured against.
+func (d SchDiff) Ref() Side { return d.ref }
 
 // Counts totals the findings by kind.
 func (d SchDiff) Counts() map[DiffKind]int {
@@ -327,110 +363,127 @@ func gather(items []Item) sideData {
 // Compare lines a schematic up against the board file and an external BOM. Either
 // of the latter may be empty, in which case that column stays blank and nothing is
 // reported against it.
-func Compare(sc *Schematic, pcb, bom []Item) SchDiff {
-	d := SchDiff{SchPath: sc.Path, unread: sc.Skipped}
+// Compare lines a schematic up against the board file and an external BOM, with ref
+// naming the side the other two are measured against. A side given as nil stays
+// blank and nothing is reported for it.
+func Compare(sc *Schematic, pcb, bom []Item, ref Side) SchDiff {
+	d := SchDiff{SchPath: sc.Path, unread: sc.Skipped, ref: ref}
 
-	schByRef := map[string]Cell{}
-	for _, s := range sc.Symbols {
-		if s.Ref == "" {
+	schData := sideData{byRef: map[string]Cell{}}
+	for _, sym := range sc.Symbols {
+		if sym.Ref == "" {
 			continue
 		}
-		schByRef[upRef(s.Ref)] = Cell{
-			Present: true, Value: s.Value, Footprint: s.Footprint, Code: s.LCSC,
-			DNP: s.DNP, OffBOM: !s.Bommable(),
+		schData.byRef[upRef(sym.Ref)] = Cell{
+			Present: true, Value: sym.Value, Footprint: sym.Footprint, Code: sym.LCSC,
+			DNP: sym.DNP, OffBOM: !sym.Bommable(),
 		}
-		if s.Bommable() {
+		if sym.Value != "" {
+			schData.hasValues = true
+		}
+		if sym.Footprint != "" {
+			schData.hasFootprint = true
+		}
+		if sym.LCSC != "" {
+			schData.hasCodes = true
+		}
+		if sym.Bommable() {
 			d.SchCount++
 		}
 	}
+	schData.count = len(schData.byRef)
 
 	pcbData, bomData := gather(pcb), gather(bom)
 	d.PCBCount, d.BOMCount = pcbData.count, bomData.count
 
-	// Part codes are compared against whichever side actually records them. A
-	// schematic often carries none — bomexpo writes them to the board — so the
-	// board stands in as the reference when the schematic is silent, otherwise
-	// every code would go unchecked.
-	schHasCodes := false
-	for _, c := range schByRef {
-		if strings.TrimSpace(c.Code) != "" {
-			schHasCodes = true
-			break
-		}
+	byside := map[Side]sideData{SideSch: schData, SidePCB: pcbData, SideBOM: bomData}
+	on := map[Side]bool{SideSch: true, SidePCB: len(pcb) > 0, SideBOM: len(bom) > 0}
+	if !on[ref] {
+		ref = SideSch // nothing to measure against, so fall back to the schematic
+		d.ref = ref
 	}
-	codeRef := SideSch
-	if !schHasCodes && pcbData.hasCodes {
+	refData := byside[ref]
+
+	// Part codes need a side that records them. A schematic often carries none —
+	// bomexpo writes them to the board — so rather than leave every code unchecked,
+	// the board stands in when the reference is silent.
+	codeRef := ref
+	if !refData.hasCodes && pcbData.hasCodes {
 		codeRef = SidePCB
 	}
 	d.codeRef = codeRef
-	if len(bom) > 0 && !bomData.hasValues {
-		d.notCompared = append(d.notCompared, "bom value")
-	}
-	if len(bom) > 0 && !bomData.hasFootprint {
-		d.notCompared = append(d.notCompared, "bom footprint")
+
+	for _, s := range []Side{SideSch, SidePCB, SideBOM} {
+		if !on[s] || s == ref {
+			continue
+		}
+		if !byside[s].hasValues {
+			d.notCompared = append(d.notCompared, s.String()+" value")
+		}
+		if !byside[s].hasFootprint {
+			d.notCompared = append(d.notCompared, s.String()+" footprint")
+		}
 	}
 
 	refs := map[string]bool{}
-	for _, m := range []map[string]Cell{schByRef, pcbData.byRef, bomData.byRef} {
-		for r := range m {
+	for _, s := range []Side{SideSch, SidePCB, SideBOM} {
+		for r := range byside[s].byRef {
 			refs[r] = true
 		}
 	}
 
-	sides := []struct {
-		side Side
-		data sideData
-		on   bool
-	}{
-		{SidePCB, pcbData, len(pcb) > 0},
-		{SideBOM, bomData, len(bom) > 0},
-	}
+	for name := range refs {
+		want := refData.byRef[name]
+		row := Row{
+			Designator: name, Ref: ref,
+			Sch: schData.byRef[name], PCB: pcbData.byRef[name], BOM: bomData.byRef[name],
+		}
 
-	for ref := range refs {
-		sch := schByRef[ref]
-		row := Row{Ref: ref, Sch: sch, PCB: pcbData.byRef[ref], BOM: bomData.byRef[ref]}
-
-		for _, s := range sides {
-			if !s.on {
+		for _, side := range []Side{SideSch, SidePCB, SideBOM} {
+			if !on[side] || side == ref {
 				continue
 			}
-			other := s.data.byRef[ref]
+			data := byside[side]
+			other := data.byRef[name]
+
 			switch {
-			case !sch.Present && other.Present:
-				row.add(DiffExtra, s.side)
+			case !want.Present && other.Present:
+				row.add(DiffExtra, side)
 				continue
-			case sch.Present && !other.Present:
+			case want.Present && !other.Present:
 				switch {
-				case sch.OffBOM:
+				case want.OffBOM:
 					// kept off the bom on purpose, so its absence is correct
-				case sch.DNP && s.side == SideBOM:
+				case want.DNP && side == SideBOM:
 					d.SkippedDNP++
 				default:
-					row.add(DiffMissing, s.side)
+					row.add(DiffMissing, side)
 				}
 				continue
-			case !sch.Present && !other.Present:
+			case !want.Present && !other.Present:
 				continue
 			}
 
-			if s.side == SideBOM {
+			// Do-not-populate and off-the-bom are authored, not derived, so they only
+			// mean anything coming from a design file — a BOM has no such column.
+			if side == SideBOM {
 				switch {
-				case sch.OffBOM:
-					row.add(DiffExcluded, s.side)
-				case sch.DNP:
-					row.add(DiffDNP, s.side)
+				case want.OffBOM:
+					row.add(DiffExcluded, side)
+				case want.DNP:
+					row.add(DiffDNP, side)
 				}
 			}
-			if s.data.hasValues && !sameValue(sch.Value, other.Value) {
-				row.add(DiffValue, s.side)
+			if data.hasValues && refData.hasValues && !sameValue(want.Value, other.Value) {
+				row.add(DiffValue, side)
 			}
-			if s.data.hasFootprint && !sameFootprint(sch.Footprint, other.Footprint) {
-				row.add(DiffFootprint, s.side)
+			if data.hasFootprint && refData.hasFootprint && !sameFootprint(want.Footprint, other.Footprint) {
+				row.add(DiffFootprint, side)
 			}
-			if s.side != codeRef && s.data.hasCodes {
-				want := row.Cell(codeRef).Code
-				if want != "" && other.Code != "" && !strings.EqualFold(want, other.Code) {
-					row.add(DiffCode, s.side)
+			if side != codeRef && data.hasCodes {
+				code := row.Cell(codeRef).Code
+				if code != "" && other.Code != "" && !strings.EqualFold(code, other.Code) {
+					row.add(DiffCode, side)
 				}
 			}
 		}
@@ -441,7 +494,6 @@ func Compare(sc *Schematic, pcb, bom []Item) SchDiff {
 		d.Rows = append(d.Rows, row)
 	}
 
-	// Disagreements first, serious ones above the rest, then by designator.
 	sort.SliceStable(d.Rows, func(i, j int) bool {
 		a, b := d.Rows[i], d.Rows[j]
 		if a.Agrees() != b.Agrees() {
@@ -450,14 +502,14 @@ func Compare(sc *Schematic, pcb, bom []Item) SchDiff {
 		if a.Severe() != b.Severe() {
 			return a.Severe()
 		}
-		return refLess(a.Ref, b.Ref)
+		return refLess(a.Designator, b.Designator)
 	})
 
 	for _, r := range d.Rows {
 		for i, k := range r.Kinds {
 			side := r.Sides[i]
 			d.Findings = append(d.Findings, Finding{
-				Kind: k, Side: side, Ref: r.Ref,
+				Kind: k, Side: side, Ref: r.Designator,
 				Sch: r.field(k, SideSch), Other: r.field(k, side),
 			})
 		}
@@ -566,11 +618,10 @@ func (d SchDiff) Summary() string {
 	}
 	by := d.SideCounts()
 	var where []string
-	if n := by[SidePCB]; n > 0 {
-		where = append(where, fmt.Sprintf("%d on the pcb", n))
-	}
-	if n := by[SideBOM]; n > 0 {
-		where = append(where, fmt.Sprintf("%d in the bom", n))
+	for _, s := range []Side{SideSch, SidePCB, SideBOM} {
+		if n := by[s]; n > 0 {
+			where = append(where, fmt.Sprintf("%d in the %s", n, s.short()))
+		}
 	}
 	return fmt.Sprintf("%d of %d agree · %s%s",
 		d.Matched, len(d.Rows), strings.Join(where, " · "), dnp)

@@ -34,14 +34,14 @@ func sampleRows() []kicad.Row {
 		return kicad.Cell{Present: true, Value: v, Footprint: fp}
 	}
 	return []kicad.Row{
-		{Ref: "R2", Sch: sch("1k", "R_0603_1608Metric"),
+		{Designator: "R2", Sch: sch("1k", "R_0603_1608Metric"),
 			Kinds: []kicad.DiffKind{kicad.DiffMissing}, Sides: []kicad.Side{kicad.SideBOM}},
-		{Ref: "C2", Sch: kicad.Cell{Present: true, Value: "1uF", DNP: true}, BOM: sch("1uF", ""),
+		{Designator: "C2", Sch: kicad.Cell{Present: true, Value: "1uF", DNP: true}, BOM: sch("1uF", ""),
 			Kinds: []kicad.DiffKind{kicad.DiffDNP}, Sides: []kicad.Side{kicad.SideBOM}},
-		{Ref: "C1", Sch: sch("", "C_0603_1608Metric"), BOM: sch("", "C_0805_2012Metric"),
+		{Designator: "C1", Sch: sch("", "C_0603_1608Metric"), BOM: sch("", "C_0805_2012Metric"),
 			Kinds: []kicad.DiffKind{kicad.DiffFootprint}, Sides: []kicad.Side{kicad.SideBOM}},
-		{Ref: "R1", Sch: sch("10k", ""), BOM: sch("10k", "")},
-		{Ref: "R3", Sch: sch("2k", ""), BOM: sch("2k", "")},
+		{Designator: "R1", Sch: sch("10k", ""), BOM: sch("10k", "")},
+		{Designator: "R3", Sch: sch("2k", ""), BOM: sch("2k", "")},
 	}
 }
 
@@ -75,7 +75,7 @@ func TestDiffFilterCyclesFromEverything(t *testing.T) {
 	}
 	for _, r := range m.diff.rows() {
 		if r.Agrees() {
-			t.Errorf("%s agrees but survived the differences filter", r.Ref)
+			t.Errorf("%s agrees but survived the differences filter", r.Designator)
 		}
 	}
 
@@ -83,7 +83,7 @@ func TestDiffFilterCyclesFromEverything(t *testing.T) {
 	m = mm.(Model)
 	for _, r := range m.diff.rows() {
 		if !r.Severe() {
-			t.Errorf("%s is not severe but survived", r.Ref)
+			t.Errorf("%s is not severe but survived", r.Designator)
 		}
 	}
 
@@ -97,7 +97,7 @@ func TestDiffFilterCyclesFromEverything(t *testing.T) {
 func TestDiffEmptyFilterSaysHowManyItHid(t *testing.T) {
 	m := diffModel(t)
 	m.diff.show = showSerious
-	m.diff.res.Rows = []kicad.Row{{Ref: "R1",
+	m.diff.res.Rows = []kicad.Row{{Designator: "R1",
 		Sch: kicad.Cell{Present: true}, BOM: kicad.Cell{Present: true}}}
 	out := stripANSI(m.viewDiff(m.contentW(), m.contentH()))
 	if !strings.Contains(out, "1 designators hidden") {
@@ -120,7 +120,7 @@ func TestDiffViewShowsSkippedDNP(t *testing.T) {
 func TestDiffViewNamesUnreadSheets(t *testing.T) {
 	m := diffModel(t)
 	sc := &kicad.Schematic{Path: "/tmp/x.kicad_sch", Skipped: []string{"power.kicad_sch"}}
-	m.diff.res = kicad.Compare(sc, nil, nil)
+	m.diff.res = kicad.Compare(sc, nil, nil, kicad.SideSch)
 	m.diff.res.BOMPath = "/tmp/theirs.csv"
 	out := stripANSI(m.viewDiff(m.contentW(), m.contentH()))
 	if !strings.Contains(out, "unread sheet power.kicad_sch") {
@@ -295,7 +295,7 @@ func wideRow() kicad.Row {
 		return kicad.Cell{Present: true, Value: "22uF", Footprint: "C_0603_1608Metric", Code: code}
 	}
 	return kicad.Row{
-		Ref: "C14", Sch: cell("C141382"), PCB: cell("C1591"), BOM: cell("C2762594"),
+		Designator: "C14", Sch: cell("C141382"), PCB: cell("C1591"), BOM: cell("C2762594"),
 		Kinds: []kicad.DiffKind{kicad.DiffCode, kicad.DiffCode},
 		Sides: []kicad.Side{kicad.SidePCB, kicad.SideBOM},
 	}
@@ -369,6 +369,76 @@ func TestDiffTableStaysInsideThePanel(t *testing.T) {
 						size[0], size[1], hoff, i, got, w)
 				}
 			}
+		}
+	}
+}
+
+// The cursor row is one unbroken highlight. A styled gutter mark emits its own
+// reset, which cuts the background off from that column on — the bug this guards.
+func TestDiffCursorRowIsOneUnbrokenHighlight(t *testing.T) {
+	m := diffModel(t)
+	m.diff.res.Rows = []kicad.Row{wideRow()}
+	m.diff.cursor = 0
+
+	line := m.diffRowView(m.diff.res.Rows[0], layoutDiffCols(), sepStyle.Render(" │ "), true)
+	if n := strings.Count(line, "\x1b["); n != 2 {
+		t.Errorf("the cursor row has %d escape sequences, want 2 — one open, one close:\n%q", n, line)
+	}
+	if !strings.HasPrefix(stripANSI(line), "▶") {
+		t.Errorf("the cursor row should lead with ▶: %q", stripANSI(line))
+	}
+	// the verdict is still readable on the focused row
+	if !strings.HasPrefix(stripANSI(line), "▶!") {
+		t.Errorf("the verdict glyph was lost on the cursor row: %q", stripANSI(line))
+	}
+}
+
+// Which file is right is the user's call, so m moves the reference column and the
+// findings follow it.
+func TestDiffReferenceColumnMoves(t *testing.T) {
+	m := diffModel(t)
+	if m.diff.ref != kicad.SidePCB {
+		t.Errorf("the default reference is %v — the board is what gets built", m.diff.ref)
+	}
+	seen := map[kicad.Side]bool{m.diff.ref: true}
+	for i := 0; i < 3; i++ {
+		mm, _ := m.updateDiffKey(key("m"))
+		m = mm.(Model)
+		seen[m.diff.ref] = true
+	}
+	if len(seen) != 3 {
+		t.Errorf("m reached %d of the 3 sides", len(seen))
+	}
+	if m.diff.ref != kicad.SidePCB {
+		t.Errorf("m should cycle back round, ended on %v", m.diff.ref)
+	}
+}
+
+// Changing the reference re-runs the comparison, since every verdict was measured
+// against the old one.
+func TestDiffReferenceChangeRecompares(t *testing.T) {
+	m := diffModel(t)
+	m.diff.field.SetValue("/tmp/whatever.csv")
+	_, cmd := m.updateDiffKey(key("m"))
+	if cmd == nil {
+		t.Error("moving the reference should start a fresh comparison")
+	}
+}
+
+// The header names the reference column, so it isn't something you have to
+// remember.
+func TestDiffHeaderMarksTheReference(t *testing.T) {
+	m := diffModel(t)
+	for _, tc := range []struct{ side, label string }{
+		{"pcb", "PCB ◆"}, {"bom", "BOM ◆"}, {"schematic", "SCHEMATIC ◆"},
+	} {
+		for m.diff.ref.String() != tc.side {
+			mm, _ := m.updateDiffKey(key("m"))
+			m = mm.(Model)
+		}
+		out := stripANSI(m.viewDiff(m.contentW(), m.contentH()))
+		if !strings.Contains(out, tc.label) {
+			t.Errorf("with %s as the reference, %q is not in the header", tc.side, tc.label)
 		}
 	}
 }

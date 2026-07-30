@@ -170,7 +170,7 @@ func TestDiffFindsEachKind(t *testing.T) {
 		bomItem("X9", "LOGO", "", ""),
 	}
 
-	d := Compare(sc, nil, items)
+	d := Compare(sc, nil, items, SideSch)
 	got := kindsOf(d)
 	for _, tc := range []struct {
 		kind DiffKind
@@ -209,7 +209,7 @@ func TestDiffSortsSeriousFirst(t *testing.T) {
 	))
 	d := Compare(sc, nil, []Item{
 		bomItem("R1", "10k", "R_0805_2012Metric", ""), // footprint: not severe
-	})
+	}, SideSch)
 	if len(d.Findings) < 2 {
 		t.Fatalf("want at least two findings, got %v", d.Findings)
 	}
@@ -229,7 +229,7 @@ func TestDiffAcceptsEquivalentValuesAndFootprints(t *testing.T) {
 		bomItem("C1", "100nF", "C_0603_1608Metric", ""), // 0.1uF == 100nF
 		bomItem("C2", "100nF", "0402", ""),              // bom records only the size
 		bomItem("Q1", "2N7002", "SOT-23-3", ""),         // one name extends the other
-	})
+	}, SideSch)
 	if len(d.Findings) != 0 {
 		t.Errorf("false alarms: %+v", d.Findings)
 	}
@@ -245,7 +245,7 @@ func TestDiffIgnoresBOMRowsWithNoDesignator(t *testing.T) {
 	d := Compare(sc, nil, []Item{
 		bomItem("R1", "10k", "R_0603_1608Metric", ""),
 		{Value: "0.5R", Footprint: "R_0603_1608Metric", Quantity: 0},
-	})
+	}, SideSch)
 	if len(d.Findings) != 0 {
 		t.Errorf("a designator-less row produced %+v", d.Findings)
 	}
@@ -254,7 +254,7 @@ func TestDiffIgnoresBOMRowsWithNoDesignator(t *testing.T) {
 // Designators differing only in case are the same part.
 func TestDiffMatchesRefsCaseInsensitively(t *testing.T) {
 	sc := loadFixture(t, schFixture(t, "case", "R1|10k|R_0603_1608Metric"))
-	d := Compare(sc, nil, []Item{bomItem("r1", "10k", "R_0603_1608Metric", "")})
+	d := Compare(sc, nil, []Item{bomItem("r1", "10k", "R_0603_1608Metric", "")}, SideSch)
 	if len(d.Findings) != 0 {
 		t.Errorf("case difference produced %+v", d.Findings)
 	}
@@ -276,7 +276,7 @@ func TestDiffSkipsColumnsTheBOMNeverHad(t *testing.T) {
 		"R1|10k|R_0603_1608Metric",
 		"R2|1k|R_0603_1608Metric",
 	))
-	d := Compare(sc, nil, items)
+	d := Compare(sc, nil, items, SideSch)
 	if len(d.Findings) != 0 {
 		t.Errorf("a missing column produced %d findings: %+v", len(d.Findings), d.Findings)
 	}
@@ -301,7 +301,7 @@ func TestDiffComparesValuesWhenThePresent(t *testing.T) {
 		bomItem("R1", "1M", "R_0603_1608Metric", ""),    // a real mismatch
 		bomItem("R2", "36k5", "R_0603_1608Metric", ""),  // rkm notation, same value
 		bomItem("C1", "0.1uF", "C_0603_1608Metric", ""), // same value, other unit
-	})
+	}, SideSch)
 	if len(d.NotCompared()) != 0 {
 		t.Fatalf("values were present but skipped: %v", d.NotCompared())
 	}
@@ -337,7 +337,7 @@ func TestCompareNamesTheSideThatDeviates(t *testing.T) {
 		bomItem("R3", "888k", "R_0603_1608Metric", ""),
 		bomItem("R4", "222k", "R_0603_1608Metric", ""),
 	}
-	d := Compare(sc, pcb, bom)
+	d := Compare(sc, pcb, bom, SideSch)
 
 	want := map[string]string{
 		"R1": "agrees",
@@ -346,8 +346,8 @@ func TestCompareNamesTheSideThatDeviates(t *testing.T) {
 		"R4": "pcb value + bom value",
 	}
 	for _, r := range d.Rows {
-		if got := r.What(); got != want[r.Ref] {
-			t.Errorf("%s: %q, want %q", r.Ref, got, want[r.Ref])
+		if got := r.What(); got != want[r.Designator] {
+			t.Errorf("%s: %q, want %q", r.Designator, got, want[r.Designator])
 		}
 	}
 	if by := d.SideCounts(); by[SidePCB] != 2 || by[SideBOM] != 2 {
@@ -364,7 +364,7 @@ func TestCompareMarksOnlyTheDeviatingSide(t *testing.T) {
 	sc := loadFixture(t, schFixture(t, "sides", "R1|10k|R_0603_1608Metric"))
 	d := Compare(sc,
 		[]Item{pcbItem("R1", "10k", "R_0603_1608Metric", "")},
-		[]Item{bomItem("R1", "47k", "R_0603_1608Metric", "")})
+		[]Item{bomItem("R1", "47k", "R_0603_1608Metric", "")}, SideSch)
 	if len(d.Rows) != 1 {
 		t.Fatalf("%d rows, want 1", len(d.Rows))
 	}
@@ -383,7 +383,7 @@ func TestCompareMarksOnlyTheDeviatingSide(t *testing.T) {
 // With no board given, nothing is reported against the pcb column.
 func TestCompareWithoutAPCBReportsOnlyTheBOM(t *testing.T) {
 	sc := loadFixture(t, schFixture(t, "nopcb", "R1|10k|R_0603_1608Metric"))
-	d := Compare(sc, nil, []Item{bomItem("R1", "47k", "R_0603_1608Metric", "")})
+	d := Compare(sc, nil, []Item{bomItem("R1", "47k", "R_0603_1608Metric", "")}, SideSch)
 	if by := d.SideCounts(); by[SidePCB] != 0 {
 		t.Errorf("%d findings against a pcb that wasn't given", by[SidePCB])
 	}
@@ -397,7 +397,7 @@ func TestComparePinsAnExtraOnTheRightSide(t *testing.T) {
 	sc := loadFixture(t, schFixture(t, "extra", "R1|10k|R_0603_1608Metric"))
 	d := Compare(sc,
 		[]Item{pcbItem("R1", "10k", "R_0603_1608Metric", ""), pcbItem("G***", "LOGO", "LOGO", "")},
-		[]Item{bomItem("R1", "10k", "R_0603_1608Metric", "")})
+		[]Item{bomItem("R1", "10k", "R_0603_1608Metric", "")}, SideSch)
 	for _, f := range d.Findings {
 		if f.Ref == "G***" {
 			if f.Kind != DiffExtra || f.Side != SidePCB {
@@ -431,7 +431,7 @@ func TestCompareReportsPartCodes(t *testing.T) {
 			bomItem("R1", "10k", "R_0402_1005Metric", "C1"),
 			bomItem("R2", "10k", "R_0402_1005Metric", "C2"),   // the bom kept the old one
 			bomItem("R3", "10k", "R_0402_1005Metric", "C777"), // both moved together
-		})
+		}, SideSch)
 
 	want := map[string]string{
 		"R1": "agrees",
@@ -439,8 +439,8 @@ func TestCompareReportsPartCodes(t *testing.T) {
 		"R3": "sch part code stale",
 	}
 	for _, r := range d.Rows {
-		if got := r.What(); got != want[r.Ref] {
-			t.Errorf("%s: %q, want %q", r.Ref, got, want[r.Ref])
+		if got := r.What(); got != want[r.Designator] {
+			t.Errorf("%s: %q, want %q", r.Designator, got, want[r.Designator])
 		}
 	}
 	if d.CodeRef() != SideSch {
@@ -463,7 +463,7 @@ func TestCompareFallsBackToTheBoardForCodes(t *testing.T) {
 		[]Item{
 			bomItem("R1", "10k", "R_0402_1005Metric", "C1"),
 			bomItem("R2", "10k", "R_0402_1005Metric", "C999"), // stale in the bom
-		})
+		}, SideSch)
 	if d.CodeRef() != SidePCB {
 		t.Fatalf("code reference = %v, want the board", d.CodeRef())
 	}
@@ -478,8 +478,8 @@ func TestCompareSkipsCodesWhenASideHasNone(t *testing.T) {
 	sc := loadFixture(t, schFixture(t, "half", "R1|10k|R_0402_1005Metric"))
 	sc.Symbols[0].LCSC = "C1"
 	d := Compare(sc,
-		[]Item{pcbItem("R1", "10k", "R_0402_1005Metric", "")}, // no codes on the board
-		[]Item{bomItem("R1", "10k", "R_0402_1005Metric", "")}) // nor in the bom
+		[]Item{pcbItem("R1", "10k", "R_0402_1005Metric", "")},          // no codes on the board
+		[]Item{bomItem("R1", "10k", "R_0402_1005Metric", "")}, SideSch) // nor in the bom
 	if len(d.Findings) != 0 {
 		t.Errorf("codeless sides produced %+v", d.Findings)
 	}
