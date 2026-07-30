@@ -131,6 +131,9 @@ came back wrong: which lines of what I sent were wrong? For the second one you d
 the old file — every zip bomexpo exports carries its `bom.csv`, so `o` reaches for the last
 order beside the project and `O` steps back through older ones.
 
+`enter` on a finding opens that part in Components with the cursor on it, so the thing you
+just found is the thing you're about to fix. `r` runs the comparison again.
+
 ## What it does
 
 - Live stock, unit price and volume pricing from LCSC or JLCPCB, no API key.

@@ -275,7 +275,15 @@ func (m Model) updateDiffKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.useLastOrder()
 	case "O":
 		return m.usePrevOrder()
-	case "enter", "r":
+	case "enter":
+		// enter acts on the row under the cursor, the same as it does in every other
+		// list here; r is how you run the comparison again.
+		rows := m.diff.rows()
+		if m.diff.cursor >= 0 && m.diff.cursor < len(rows) {
+			return m.jumpToComponent(rows[m.diff.cursor].Designator)
+		}
+		return m, nil
+	case "r":
 		return m.startDiff()
 	case "s":
 		m.diff.show = (m.diff.show + 1) % 3
@@ -694,7 +702,8 @@ func (m Model) diffFooter(w int) string {
 				dimStyle.Render("   O older · tab type a path · esc back")
 		}
 	}
-	left := dimStyle.Render("  o last order · s ") + accentStyle.Render(m.diff.show.String()) +
+	left := dimStyle.Render("  enter opens it in Components · s ") +
+		accentStyle.Render(m.diff.show.String()) +
 		dimStyle.Render(" · m against ") + accentStyle.Render(m.diff.ref.String())
 	right := dimStyle.Render(fmt.Sprintf("%d of %d · ↑↓ rows · ←→ columns · esc back",
 		len(m.diff.rows()), len(m.diff.res.Rows)))
