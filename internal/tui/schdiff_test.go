@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"archive/zip"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/lipgloss/v2"
 
@@ -16,7 +18,8 @@ func diffModel(t *testing.T, findings ...kicad.Finding) Model {
 	m := filterModel(t)
 	m.w, m.h = 132, 30
 	m.pcbPath = "/tmp/x.kicad_pcb"
-	mm, _ := m.gotoTab(modeDiff)
+	mm, _ := m.gotoTab(modeCheck)
+	mm, _ = mm.(Model).openVerify()
 	m = mm.(Model)
 	m.diff.ran = true
 	m.diff.res = kicad.SchDiff{
@@ -161,7 +164,8 @@ func TestDiffWidthHolds(t *testing.T) {
 func TestDiffWithNoDesignExplainsItself(t *testing.T) {
 	m := New(Options{})
 	m.w, m.h = 120, 26
-	mm, _ := m.gotoTab(modeDiff)
+	mm, _ := m.gotoTab(modeCheck)
+	mm, _ = mm.(Model).openVerify()
 	m = mm.(Model)
 	out := stripANSI(m.viewDiff(m.contentW(), m.contentH()))
 	if !strings.Contains(out, "no design open") {
@@ -467,7 +471,10 @@ func TestDiffHeaderMarksTheReference(t *testing.T) {
 	for _, tc := range []struct{ side, label string }{
 		{"pcb", "PCB ◆"}, {"bom", "BOM ◆"}, {"schematic", "SCHEMATIC ◆"},
 	} {
-		for m.diff.ref.String() != tc.side {
+		for i := 0; m.diff.ref.String() != tc.side; i++ {
+			if i > 3 {
+				t.Fatalf("m never reached %s — it is not cycling the reference", tc.side)
+			}
 			mm, _ := m.updateDiffKey(key("m"))
 			m = mm.(Model)
 		}
@@ -475,5 +482,146 @@ func TestDiffHeaderMarksTheReference(t *testing.T) {
 		if !strings.Contains(out, tc.label) {
 			t.Errorf("with %s as the reference, %q is not in the header", tc.side, tc.label)
 		}
+	}
+}
+
+// orderZip writes a zip shaped like one bomexpo exports.
+func orderZip(t *testing.T, dir, name string, rows string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	zw := zip.NewWriter(f)
+	w, err := zw.Create("bom.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte(rows)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := zw.Create("gerber/top.gbr"); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+const orderRows = "Comment,Designator,Footprint,Quantity,LCSC Part #\n10k,R1,R_0402_1005Metric,1,C60490\n"
+
+// The BOM you sent is inside the order zip, so Verify reads it straight out rather
+// than making anyone unpack it first.
+func TestVerifyReadsTheBOMOutOfAnOrderZip(t *testing.T) {
+	dir := t.TempDir()
+	z := orderZip(t, dir, "board-order.zip", orderRows)
+
+	items, err := importOrderBOM(z)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].LCSC != "C60490" {
+		t.Errorf("read %+v from the zip, want the one R1 line", items)
+	}
+	// a plain csv still works
+	csv := filepath.Join(dir, "plain.csv")
+	if err := os.WriteFile(csv, []byte(orderRows), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if items, err := importOrderBOM(csv); err != nil || len(items) != 1 {
+		t.Errorf("plain csv gave %+v, %v", items, err)
+	}
+	// a zip with no BOM says so instead of comparing against nothing
+	empty := filepath.Join(dir, "no-bom-order.zip")
+	f, _ := os.Create(empty)
+	zw := zip.NewWriter(f)
+	zw.Create("gerber/top.gbr")
+	zw.Close()
+	f.Close()
+	if _, err := importOrderBOM(empty); err == nil {
+		t.Error("a zip with no bom should report it")
+	}
+}
+
+// o reaches for the newest order beside the design, newest first, and O steps back
+// through the older ones — after a bad run you want the one before it too.
+func TestVerifyOffersTheOrdersBesideTheDesign(t *testing.T) {
+	dir := t.TempDir()
+	old := orderZip(t, dir, "board-order.zip", orderRows)
+	recent := orderZip(t, dir, "board-order 2.zip", orderRows)
+	// make the ordering unambiguous
+	past := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(old, past, past); err != nil {
+		t.Fatal(err)
+	}
+	// something that is not an order must be ignored
+	if err := os.WriteFile(filepath.Join(dir, "photos.zip"), []byte("not a zip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	design := filepath.Join(dir, "board.kicad_pcb")
+	zips := orderZips(design)
+	if len(zips) != 2 {
+		t.Fatalf("found %d orders, want the 2 order zips: %+v", len(zips), zips)
+	}
+	if zips[0].Path != recent {
+		t.Errorf("newest is %s, want %s", zips[0].Name(), filepath.Base(recent))
+	}
+
+	m := diffModel(t)
+	m.pcbPath = design
+	mm, cmd := m.updateDiffKey(key("o"))
+	m = mm.(Model)
+	if m.diff.field.Value() != recent {
+		t.Errorf("o picked %q, want the newest order", m.diff.field.Value())
+	}
+	if cmd == nil {
+		t.Error("o should start the comparison, not just fill the path in")
+	}
+	mm, _ = m.updateDiffKey(key("O"))
+	if got := mm.(Model).diff.field.Value(); got != old {
+		t.Errorf("O picked %q, want the older order", got)
+	}
+}
+
+// With no order beside the design, o says so rather than doing nothing.
+func TestVerifyWithNoOrderExplainsItself(t *testing.T) {
+	m := diffModel(t)
+	m.pcbPath = filepath.Join(t.TempDir(), "board.kicad_pcb")
+	mm, cmd := m.updateDiffKey(key("o"))
+	if cmd != nil {
+		t.Error("there is nothing to compare against, so nothing should run")
+	}
+	if !strings.Contains(mm.(Model).diff.err, "no exported order") {
+		t.Errorf("err = %q, want it to say there is no order", mm.(Model).diff.err)
+	}
+}
+
+// Verify is reached from Export and goes back there, and arriving never takes the
+// keyboard — s, m and o have to be commands.
+func TestVerifyIsADetourOffExport(t *testing.T) {
+	m := filterModel(t)
+	m.w, m.h = 140, 26
+	m.pcbPath = "/tmp/x.kicad_pcb"
+	mm, _ := m.gotoTab(modeCheck)
+	m = mm.(Model)
+
+	mm, _ = m.updateCheck(key("v"))
+	m = mm.(Model)
+	if m.mode != modeDiff {
+		t.Fatalf("v from Export went to %v", m.mode)
+	}
+	if m.diff.field.Focused() {
+		t.Error("arriving at Verify took the keyboard — s and m would type instead of act")
+	}
+	if bar := stripANSI(m.tabBar()); strings.Contains(bar, "Verify") {
+		t.Errorf("Verify is a detour, not a tab: %q", bar)
+	}
+	mm, _ = m.updateDiffKey(key("esc"))
+	if got := mm.(Model).mode; got != modeCheck {
+		t.Errorf("esc from Verify went to %v, want back to Export", got)
 	}
 }

@@ -174,7 +174,7 @@ func (m Model) diffCmd(bomPath string) tea.Cmd {
 			}
 			pcbItems = d.Items
 		}
-		bomItems, err := kicad.ImportBOM(bomPath)
+		bomItems, err := importOrderBOM(bomPath)
 		if err != nil {
 			return diffDoneMsg{err: err}
 		}
@@ -182,6 +182,23 @@ func (m Model) diffCmd(bomPath string) tea.Cmd {
 		res.PCBPath, res.BOMPath = pcb, bomPath
 		return diffDoneMsg{res: res}
 	}
+}
+
+// openVerify enters the comparison from Export, which is where the question comes
+// up. esc goes back there.
+func (m Model) openVerify() (tea.Model, tea.Cmd) {
+	m.mode = modeDiff
+	if m.diff.field.Value() == "" {
+		// Point it at the last order this project sent, since "what did I actually
+		// send" is the question that brings anyone here.
+		if p, _ := lastOrder(m.sourcePath()); p != "" {
+			m.diff.field.SetValue(p)
+		}
+	}
+	// Arriving here leaves the keys to the page, like everywhere else: a focused
+	// field would swallow s, m and the digits. The footer says tab to type.
+	m.diff.field.Blur()
+	return m, nil
 }
 
 func (m Model) startDiff() (tea.Model, tea.Cmd) {
@@ -249,11 +266,15 @@ func (m Model) updateDiffKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "esc":
-		m.mode = modeTable
+		m.mode = modeCheck
 		return m, nil
 	case "tab", "shift+tab", "e", "/", "i":
 		m.diff.field.Focus()
 		return m, nil
+	case "o":
+		return m.useLastOrder()
+	case "O":
+		return m.usePrevOrder()
 	case "enter", "r":
 		return m.startDiff()
 	case "s":
@@ -328,6 +349,36 @@ func diffCandidates(input string) (dir string, names []string) {
 	return d, names
 }
 
+// useLastOrder fills the path in with the newest order this project sent.
+func (m Model) useLastOrder() (tea.Model, tea.Cmd) {
+	return m.pickOrder(0)
+}
+
+// usePrevOrder steps back through older orders, for the run before the bad one.
+func (m Model) usePrevOrder() (tea.Model, tea.Cmd) {
+	zips := orderZips(m.sourcePath())
+	at := 0
+	for i, z := range zips {
+		if z.Path == strings.TrimSpace(m.diff.field.Value()) {
+			at = i + 1
+		}
+	}
+	return m.pickOrder(at)
+}
+
+func (m Model) pickOrder(n int) (tea.Model, tea.Cmd) {
+	zips := orderZips(m.sourcePath())
+	if len(zips) == 0 {
+		m.diff.err = "no exported order beside this design to compare against"
+		return m, nil
+	}
+	z := zips[clampInt(n, 0, len(zips)-1)]
+	m.diff.field.SetValue(z.Path)
+	m.diff.field.Blur()
+	m.flash = "comparing against " + z.Name() + " · " + z.When.Format("2 Jan 15:04")
+	return m.startDiff()
+}
+
 // diffKindStyle colours a finding by whether it would spoil an order.
 func diffKindStyle(k kicad.DiffKind) lipgloss.Style {
 	switch k {
@@ -382,7 +433,9 @@ func diffMark(r kicad.Row) string {
 func (m Model) viewDiff(w, h int) string {
 	s := m.diff
 
-	title := focusMark(!s.field.Focused()) + subtleStyle.Render("compare the schematic against a bom from somewhere else")
+	title := focusMark(!s.field.Focused()) +
+		subtleStyle.Render("does a bom match this design? point it at one, or press ") +
+		accentStyle.Render("o") + subtleStyle.Render(" for the last order you sent")
 	path := focusMark(s.field.Focused()) + s.field.View()
 
 	sch := m.schPath()
@@ -634,7 +687,14 @@ func (m Model) diffFooter(w int) string {
 	if m.diff.field.Focused() {
 		return dimStyle.Render("  tab complete · enter compare · esc leaves the path")
 	}
-	left := dimStyle.Render("  tab path · s ") + accentStyle.Render(m.diff.show.String()) +
+	if !m.diff.ran && m.diff.err == "" {
+		if zips := orderZips(m.sourcePath()); len(zips) > 0 {
+			return dimStyle.Render("  o ") + accentStyle.Render(zips[0].Name()) +
+				dimStyle.Render("  ("+zips[0].When.Format("2 Jan 15:04")+")") +
+				dimStyle.Render("   O older · tab type a path · esc back")
+		}
+	}
+	left := dimStyle.Render("  o last order · s ") + accentStyle.Render(m.diff.show.String()) +
 		dimStyle.Render(" · m against ") + accentStyle.Render(m.diff.ref.String())
 	right := dimStyle.Render(fmt.Sprintf("%d of %d · ↑↓ rows · ←→ columns · esc back",
 		len(m.diff.rows()), len(m.diff.res.Rows)))

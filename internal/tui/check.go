@@ -155,6 +155,9 @@ func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "e", "/":
 		m.check.setPane(paneOut)
 		return m, nil
+	case "v":
+		// verify before you commit, or after an order came back wrong
+		return m.openVerify()
 	case "enter":
 		return m.startExport()
 
@@ -385,7 +388,7 @@ func (m Model) viewCheck(w, h int) string {
 	// get. The output field spans the bottom because it acts on both.
 	body := sideBySide(lines, m.boardPane(rightW, paneH), leftW, w, paneH)
 	label := focusMark(m.check.pane == paneOut) + dimStyle.Render("Output  ")
-	hint := "tab cycles issues → board → path · enter export · * = some parts unassigned"
+	hint := "tab cycles issues → board → path · v verify against a bom · enter export"
 	if m.check.pane == paneOut {
 		label = focusMark(true) + accentStyle.Render("Output  ")
 		hint = "enter export · tab moves on · esc back to the issues"

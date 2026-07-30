@@ -36,16 +36,18 @@ type tabDef struct {
 	label string
 }
 
-// The tab bar is the job in order: open a design, assign parts to it, check the
-// files agree, export. Parts sits between them as the research tool it is, and
-// Compare hangs off Parts rather than taking a place in the line — two tabs both
-// called some form of "compare" was the confusing part.
+// The tab bar is the job in order: open a design, assign parts to it, export. Parts
+// sits between them as the research tool it is.
+//
+// Only the things you touch every session get a number. Compare hangs off Parts and
+// Verify off Export — Verify answers "does this match the design" and "which lines
+// of what I sent were wrong", both of which come up at the moment you are about to
+// order or have just been burned by one. Rare, but exactly there.
 func (m Model) tabs() []tabDef {
 	return []tabDef{
 		{modeLoad, "Load"},
 		{modeTable, "Components"},
 		{modeParts, "Parts"},
-		{modeDiff, "Verify"},
 		{modeCheck, "Export"},
 	}
 }

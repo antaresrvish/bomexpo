@@ -162,7 +162,7 @@ func TestTabBarIsTheJobInOrder(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	if got, want := labels(), "Load,Components,Parts,Verify,Export"; got != want {
+	if got, want := labels(), "Load,Components,Parts,Export"; got != want {
 		t.Errorf("tabs = %s, want %s", got, want)
 	}
 
@@ -176,20 +176,19 @@ func TestTabBarIsTheJobInOrder(t *testing.T) {
 	m.parts.cursor = 1
 	mm, _ = m.togglePin()
 	m = mm.(Model)
-	if got, want := labels(), "Load,Components,Parts,Verify,Export"; got != want {
+	if got, want := labels(), "Load,Components,Parts,Export"; got != want {
 		t.Errorf("tabs = %s, want %s", got, want)
 	}
 
 	// the digit shortcuts follow the visible tabs
-	for n, want := range map[int]mode{1: modeLoad, 2: modeTable, 3: modeParts,
-		4: modeDiff, 5: modeCheck} {
+	for n, want := range map[int]mode{1: modeLoad, 2: modeTable, 3: modeParts, 4: modeCheck} {
 		got, ok := m.tabMode(n)
 		if !ok || got != want {
 			t.Errorf("tabMode(%d) = %v/%v, want %v", n, got, ok, want)
 		}
 	}
-	if _, ok := m.tabMode(6); ok {
-		t.Error("tabMode(6) should not resolve")
+	if _, ok := m.tabMode(5); ok {
+		t.Error("tabMode(5) should not resolve")
 	}
 }
 

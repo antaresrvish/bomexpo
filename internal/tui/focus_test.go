@@ -9,7 +9,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"bomexpo/internal/kicad"
 	"bomexpo/internal/part"
 )
 
@@ -415,28 +414,12 @@ func TestNextStepOnlySpeaksWhenTheStageIsDone(t *testing.T) {
 		m.assigned[i] = &p
 		m.items[i].LCSC = "C1"
 	}
-	if got := stripANSI(m.nextStep()); got != "→ 4 Verify" {
-		t.Errorf("finished board suggests %q, want → 4 Verify", got)
+	if got := stripANSI(m.nextStep()); got != "→ 4 Export" {
+		t.Errorf("finished board suggests %q, want → 4 Export", got)
 	}
-	// and the number it names is the tab it means
-	if md, ok := m.tabMode(4); !ok || md != modeDiff {
-		t.Errorf("tab 4 is %v, but the hint sends you there for Verify", md)
-	}
-
-	// Verify only points at Export once nothing serious is left
-	mm, _ = m.gotoTab(modeDiff)
-	m = mm.(Model)
-	m.diff.ran = true
-	m.diff.res = kicad.Compare(&kicad.Schematic{Path: "/tmp/x.kicad_sch"}, nil, nil, kicad.SidePCB)
-	if got := stripANSI(m.nextStep()); got != "→ 5 Export" {
-		t.Errorf("a clean verify suggests %q, want → 5 Export", got)
-	}
-	m.diff.res.Findings = []kicad.Finding{{Kind: kicad.DiffMissing, Ref: "R1"}}
-	if got := m.nextStep(); got != "" {
-		t.Errorf("a verify with a serious finding suggests %q", stripANSI(got))
-	}
-	if md, ok := m.tabMode(5); !ok || md != modeCheck {
-		t.Errorf("tab 5 is %v, but the hint sends you there to Export", md)
+	// the number it names is the tab it means
+	if md, ok := m.tabMode(4); !ok || md != modeCheck {
+		t.Errorf("tab 4 is %v, but the hint sends you there to Export", md)
 	}
 }
 
@@ -458,7 +441,7 @@ func TestCompareIsADetourOffParts(t *testing.T) {
 	}
 	// Parts stays lit while you're in its detour
 	bar := stripANSI(m.tabBar())
-	for _, want := range []string{"Load", "Components", "Parts", "Verify", "Export"} {
+	for _, want := range []string{"Load", "Components", "Parts", "Export"} {
 		if !strings.Contains(bar, want) {
 			t.Errorf("%q missing from the tab bar: %q", want, bar)
 		}

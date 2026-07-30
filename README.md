@@ -45,10 +45,12 @@ bomexpo bom.csv positions.csv
 ```
 
 The tabs are the job in order: **Load** opens a design, **Components** is where you assign
-parts, **Verify** checks the schematic, the board and a BOM agree, and **Export** writes the
-zip. **Parts** sits between them as a research tool — browse and compare parts with or
-without a design open. When a stage has nothing left to do the status line names the next
-one.
+parts, **Export** writes the zip. **Parts** sits between them as a research tool — browse and
+compare parts with or without a design open. When a stage has nothing left to do the status
+line names the next one.
+
+Two things hang off a tab rather than taking a number of their own: `c` in Parts compares
+pinned parts, and `v` in Export verifies a BOM against the design.
 
 ![Load screen](docs/load.png)
 
@@ -117,12 +119,17 @@ Landing on a tab never takes the keyboard, so the tab keys keep working — pres
 issue list and the board both want the arrows, so `tab` walks the three panes and `↑↓`
 goes to whichever has them.
 
-### Verify
+### Verify a BOM against the design
 
-Verify lines the same designator up across all three descriptions of the board — the
-schematic, the `.kicad_pcb` and a BOM you point it at — and reports value, footprint, part
-code, and anything present on one side but not another. `m` picks which of the three the
-other two are measured against; the board is the default, since that is what gets built.
+`v` in Export lines the same designator up across all three descriptions of the board — the
+schematic, the `.kicad_pcb` and a BOM — and reports value, footprint, part code, and
+anything present on one side but not another. `m` picks which of the three the other two are
+measured against; the board is the default, since that is what gets built.
+
+It answers two questions. Before ordering: does this BOM match the design? After an order
+came back wrong: which lines of what I sent were wrong? For the second one you don't need
+the old file — every zip bomexpo exports carries its `bom.csv`, so `o` reaches for the last
+order beside the project and `O` steps back through older ones.
 
 ## What it does
 

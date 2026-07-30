@@ -308,6 +308,8 @@ func (m Model) cycleTab(dir int) (tea.Model, tea.Cmd) {
 		want = modeTable // detours off Components, not tabs of their own
 	case modeCompare:
 		want = modeParts
+	case modeDiff:
+		want = modeCheck
 	}
 	for i, t := range tabs {
 		if t.mode == want {
@@ -395,6 +397,8 @@ func (m Model) tabBar() string {
 			home = modeTable
 		case modeCompare:
 			home = modeParts
+		case modeDiff:
+			home = modeCheck
 		}
 		active := t.mode == home
 		st := tabInactive
@@ -565,15 +569,7 @@ func (m Model) nextStep() string {
 		if a, _ := m.counts(); a < m.activeCount() {
 			return "" // still parts to assign
 		}
-		return arrow(4, "Verify")
-	case modeDiff:
-		if !m.diff.ran {
-			return ""
-		}
-		if m.diff.res.Severe() > 0 {
-			return ""
-		}
-		return arrow(5, "Export")
+		return arrow(4, "Export")
 	}
 	return ""
 }
@@ -651,8 +647,9 @@ func (m Model) helpLine(budget int) string {
 			hints = [][2]string{{"type", "bom path"}, {"enter", "compare"}, tabHint(false), {"esc", "back"}}
 			break
 		}
-		hints = [][2]string{{"↑↓", "move"}, {"←→", "columns"}, {"s", m.diff.show.String()},
-			{"m", "vs " + m.diff.ref.String()}, {"tab", "bom path"}, tabHint(true), {"esc", "back"}}
+		hints = [][2]string{{"o", "last order"}, {"↑↓", "move"}, {"←→", "columns"},
+			{"s", m.diff.show.String()}, {"m", "vs " + m.diff.ref.String()},
+			{"tab", "bom path"}, {"esc", "back to Export"}}
 	}
 	var parts []string
 	width := 0
