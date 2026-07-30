@@ -408,3 +408,79 @@ func TestComparePinsAnExtraOnTheRightSide(t *testing.T) {
 	}
 	t.Error("the board-only part was never reported")
 }
+
+// A part swapped because the original went out of stock shows up as a different
+// code for the same designator — the field that catches a re-order most often.
+func TestCompareReportsPartCodes(t *testing.T) {
+	sc := loadFixture(t, schFixture(t, "codes",
+		"R1|10k|R_0402_1005Metric",
+		"R2|10k|R_0402_1005Metric",
+		"R3|10k|R_0402_1005Metric",
+	))
+	// the schematic carries codes, so it is the reference
+	for i := range sc.Symbols {
+		sc.Symbols[i].LCSC = map[string]string{"R1": "C1", "R2": "C2", "R3": "C3"}[sc.Symbols[i].Ref]
+	}
+	d := Compare(sc,
+		[]Item{
+			pcbItem("R1", "10k", "R_0402_1005Metric", "C1"),   // agrees
+			pcbItem("R2", "10k", "R_0402_1005Metric", "C999"), // the board was re-picked
+			pcbItem("R3", "10k", "R_0402_1005Metric", "C777"),
+		},
+		[]Item{
+			bomItem("R1", "10k", "R_0402_1005Metric", "C1"),
+			bomItem("R2", "10k", "R_0402_1005Metric", "C2"),   // the bom kept the old one
+			bomItem("R3", "10k", "R_0402_1005Metric", "C777"), // both moved together
+		})
+
+	want := map[string]string{
+		"R1": "agrees",
+		"R2": "pcb part code",
+		"R3": "sch part code stale",
+	}
+	for _, r := range d.Rows {
+		if got := r.What(); got != want[r.Ref] {
+			t.Errorf("%s: %q, want %q", r.Ref, got, want[r.Ref])
+		}
+	}
+	if d.CodeRef() != SideSch {
+		t.Errorf("code reference = %v, want the schematic", d.CodeRef())
+	}
+}
+
+// A schematic with no codes at all can't be the code reference, so the board takes
+// over — otherwise codes would go unchecked on every project bomexpo writes to.
+func TestCompareFallsBackToTheBoardForCodes(t *testing.T) {
+	sc := loadFixture(t, schFixture(t, "nocodes",
+		"R1|10k|R_0402_1005Metric",
+		"R2|10k|R_0402_1005Metric",
+	))
+	d := Compare(sc,
+		[]Item{
+			pcbItem("R1", "10k", "R_0402_1005Metric", "C1"),
+			pcbItem("R2", "10k", "R_0402_1005Metric", "C2"),
+		},
+		[]Item{
+			bomItem("R1", "10k", "R_0402_1005Metric", "C1"),
+			bomItem("R2", "10k", "R_0402_1005Metric", "C999"), // stale in the bom
+		})
+	if d.CodeRef() != SidePCB {
+		t.Fatalf("code reference = %v, want the board", d.CodeRef())
+	}
+	got := kindsOf(d)
+	if strings.Join(got[DiffCode], ",") != "R2" {
+		t.Errorf("code findings = %v, want just R2", got[DiffCode])
+	}
+}
+
+// A side that records no codes at all must not have every row reported against it.
+func TestCompareSkipsCodesWhenASideHasNone(t *testing.T) {
+	sc := loadFixture(t, schFixture(t, "half", "R1|10k|R_0402_1005Metric"))
+	sc.Symbols[0].LCSC = "C1"
+	d := Compare(sc,
+		[]Item{pcbItem("R1", "10k", "R_0402_1005Metric", "")}, // no codes on the board
+		[]Item{bomItem("R1", "10k", "R_0402_1005Metric", "")}) // nor in the bom
+	if len(d.Findings) != 0 {
+		t.Errorf("codeless sides produced %+v", d.Findings)
+	}
+}

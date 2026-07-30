@@ -266,7 +266,7 @@ func diffKindStyle(k kicad.DiffKind) lipgloss.Style {
 	switch k {
 	case kicad.DiffMissing, kicad.DiffExtra:
 		return badStyle
-	case kicad.DiffDNP, kicad.DiffValue:
+	case kicad.DiffDNP, kicad.DiffValue, kicad.DiffCode:
 		return warnStyle
 	}
 	return subtleStyle
@@ -449,7 +449,7 @@ func (m Model) diffCounts(w int) string {
 		var bits []string
 		for _, k := range []kicad.DiffKind{
 			kicad.DiffMissing, kicad.DiffExtra, kicad.DiffDNP,
-			kicad.DiffValue, kicad.DiffFootprint, kicad.DiffExcluded,
+			kicad.DiffValue, kicad.DiffFootprint, kicad.DiffCode, kicad.DiffExcluded,
 		} {
 			if n := byKind[k]; n > 0 {
 				bits = append(bits, diffKindStyle(k).Render(fmt.Sprintf("%d %s", n, k)))
@@ -467,7 +467,12 @@ func (m Model) diffCounts(w int) string {
 		parts = append(parts, badStyle.Render("unread sheet "+sh))
 	}
 	if nc := d.NotCompared(); len(nc) > 0 {
-		parts = append(parts, warnStyle.Render("no "+strings.Join(nc, "/")+" column in that bom"))
+		parts = append(parts, warnStyle.Render("no "+strings.Join(nc, "/")+" column"))
+	}
+	if d.CodeRef() != kicad.SideSch {
+		// The schematic carries no part codes, so say what the codes were judged
+		// against rather than leaving the column looking authoritative.
+		parts = append(parts, dimStyle.Render("codes vs the "+d.CodeRef().String()))
 	}
 	if len(parts) == 0 {
 		return dimStyle.Render(fmt.Sprintf("%d symbols · %d on the pcb · %d bom designators",

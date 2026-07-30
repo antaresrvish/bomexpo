@@ -50,6 +50,9 @@ const (
 	// DiffValue and DiffFootprint are the same designator described two ways.
 	DiffValue
 	DiffFootprint
+	// DiffCode is a different distributor part for the same designator — what you
+	// get when a part went out of stock and only one side was updated.
+	DiffCode
 )
 
 func (k DiffKind) String() string {
@@ -66,6 +69,8 @@ func (k DiffKind) String() string {
 		return "value"
 	case DiffFootprint:
 		return "footprint"
+	case DiffCode:
+		return "part code"
 	}
 	return "?"
 }
@@ -74,7 +79,7 @@ func (k DiffKind) String() string {
 // worth a look.
 func (k DiffKind) Severe() bool {
 	switch k {
-	case DiffMissing, DiffExtra, DiffValue, DiffDNP:
+	case DiffMissing, DiffExtra, DiffValue, DiffDNP, DiffCode:
 		return true
 	}
 	return false
@@ -175,10 +180,24 @@ func (r Row) What() string {
 		}
 		return "agrees"
 	}
+	// When the board and the BOM both differ from the schematic in the same way and
+	// agree with each other, the schematic is the odd one out — saying "pcb X + bom
+	// X" would blame the two sides that actually match.
+	onBoth := map[DiffKind]bool{}
+	for _, k := range []DiffKind{DiffValue, DiffFootprint, DiffCode} {
+		if r.has(k, SidePCB) && r.has(k, SideBOM) &&
+			strings.EqualFold(r.field(k, SidePCB), r.field(k, SideBOM)) {
+			onBoth[k] = true
+		}
+	}
+
 	seen := map[string]bool{}
 	var out []string
 	for i, k := range r.Kinds {
 		label := r.Sides[i].String() + " " + k.String()
+		if onBoth[k] {
+			label = "sch " + k.String() + " stale"
+		}
 		if seen[label] {
 			continue
 		}
@@ -186,6 +205,28 @@ func (r Row) What() string {
 		out = append(out, label)
 	}
 	return strings.Join(out, " + ")
+}
+
+// has reports whether a kind was recorded against a side.
+func (r Row) has(k DiffKind, s Side) bool {
+	for i := range r.Kinds {
+		if r.Kinds[i] == k && r.Sides[i] == s {
+			return true
+		}
+	}
+	return false
+}
+
+// SchStale reports whether the board and the BOM agree with each other and differ
+// from the schematic, which points the fix at the schematic rather than at them.
+func (r Row) SchStale() bool {
+	for _, k := range []DiffKind{DiffValue, DiffFootprint, DiffCode} {
+		if r.has(k, SidePCB) && r.has(k, SideBOM) &&
+			strings.EqualFold(r.field(k, SidePCB), r.field(k, SideBOM)) {
+			return true
+		}
+	}
+	return false
 }
 
 // SchDiff is the whole comparison.
@@ -203,6 +244,8 @@ type SchDiff struct {
 	// reason.
 	SkippedDNP int
 	unread     []string
+	// codeRef is the side part codes were measured against.
+	codeRef Side
 	// notCompared names the columns a side never supplied. Comparing against a
 	// column that isn't there would report every single row as a mismatch.
 	notCompared []string
@@ -213,6 +256,9 @@ func (d SchDiff) Skipped() []string { return d.unread }
 
 // NotCompared names the fields a side carried no data for.
 func (d SchDiff) NotCompared() []string { return d.notCompared }
+
+// CodeRef is the side part codes were compared against.
+func (d SchDiff) CodeRef() Side { return d.codeRef }
 
 // Counts totals the findings by kind.
 func (d SchDiff) Counts() map[DiffKind]int {
@@ -247,6 +293,7 @@ func (d SchDiff) Severe() int {
 type sideData struct {
 	byRef                   map[string]Cell
 	hasValues, hasFootprint bool
+	hasCodes                bool
 	count                   int
 }
 
@@ -258,6 +305,9 @@ func gather(items []Item) sideData {
 		}
 		if strings.TrimSpace(it.Footprint) != "" {
 			d.hasFootprint = true
+		}
+		if strings.TrimSpace(it.LCSC) != "" {
+			d.hasCodes = true
 		}
 		for _, ref := range it.Designators {
 			r := upRef(ref)
@@ -296,6 +346,23 @@ func Compare(sc *Schematic, pcb, bom []Item) SchDiff {
 
 	pcbData, bomData := gather(pcb), gather(bom)
 	d.PCBCount, d.BOMCount = pcbData.count, bomData.count
+
+	// Part codes are compared against whichever side actually records them. A
+	// schematic often carries none — bomexpo writes them to the board — so the
+	// board stands in as the reference when the schematic is silent, otherwise
+	// every code would go unchecked.
+	schHasCodes := false
+	for _, c := range schByRef {
+		if strings.TrimSpace(c.Code) != "" {
+			schHasCodes = true
+			break
+		}
+	}
+	codeRef := SideSch
+	if !schHasCodes && pcbData.hasCodes {
+		codeRef = SidePCB
+	}
+	d.codeRef = codeRef
 	if len(bom) > 0 && !bomData.hasValues {
 		d.notCompared = append(d.notCompared, "bom value")
 	}
@@ -360,6 +427,12 @@ func Compare(sc *Schematic, pcb, bom []Item) SchDiff {
 			if s.data.hasFootprint && !sameFootprint(sch.Footprint, other.Footprint) {
 				row.add(DiffFootprint, s.side)
 			}
+			if s.side != codeRef && s.data.hasCodes {
+				want := row.Cell(codeRef).Code
+				if want != "" && other.Code != "" && !strings.EqualFold(want, other.Code) {
+					row.add(DiffCode, s.side)
+				}
+			}
 		}
 
 		if row.Agrees() {
@@ -406,6 +479,8 @@ func (r Row) field(k DiffKind, s Side) string {
 		return dash(c.Value)
 	case DiffFootprint:
 		return dash(c.Footprint)
+	case DiffCode:
+		return dash(c.Code)
 	}
 	return c.Text()
 }
