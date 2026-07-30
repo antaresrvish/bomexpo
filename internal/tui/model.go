@@ -28,6 +28,7 @@ const (
 	modeCompare
 	modeNets
 	modeCheck
+	modeDiff
 )
 
 type tabDef struct {
@@ -43,6 +44,7 @@ func (m Model) tabs() []tabDef {
 		{modeTable, "Components"},
 		{modeParts, "Parts"},
 		{modeCheck, "Check"},
+		{modeDiff, "Diff"},
 	}
 	if len(m.parts.pinned) >= 2 {
 		// no count here — the panel title already says how many are pinned
@@ -87,6 +89,7 @@ type Model struct {
 	check   checkState
 	filter  filterState
 	nets    netState
+	diff    diffState
 
 	name        string
 	pcbPath     string // empty for a CSV design
@@ -175,6 +178,7 @@ func New(opt Options) Model {
 	m.check = newCheckState()
 	m.filter = newFilterState()
 	m.nets = newNetState()
+	m.diff = newDiffState()
 	m.boardv = newBoardState()
 	return m
 }

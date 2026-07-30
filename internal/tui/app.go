@@ -55,6 +55,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case catsLoadedMsg:
 		return m.updateCatsLoaded(msg)
 
+	case diffDoneMsg:
+		return m.updateDiffDone(msg)
+
 	case footprintDoneMsg:
 		// a failed download just leaves the card showing the package name
 		if msg.err == nil && len(msg.fp.Lands) > 0 && m.edaLands != nil {
@@ -230,6 +233,8 @@ func (m Model) routeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updateNetKey(msg)
 	case modeCheck:
 		return m.updateCheck(msg)
+	case modeDiff:
+		return m.updateDiffKey(msg)
 	}
 	return m, nil
 }
@@ -364,6 +369,8 @@ func (m Model) titleBody() (title, body string) {
 		return "Nets" + projSuffix(m.name), m.viewNets(cw, ch)
 	case modeCheck:
 		return "Final check & export", m.viewCheck(cw, ch)
+	case modeDiff:
+		return "Schematic vs external BOM", m.viewDiff(cw, ch)
 	}
 	return "Open project", m.viewLoad(cw, ch)
 }
@@ -396,6 +403,15 @@ func (m Model) tabBar() string {
 	}
 
 	bw, tw, rw := lipgloss.Width(brand), lipgloss.Width(tabsStr), lipgloss.Width(right)
+	// Narrow terminals drop the brand and then the counts, in that order, before
+	// the tabs give up a column — one column over and every line of the view pads
+	// out to match, which slides the whole page.
+	if bw+tw+rw+2 > m.w {
+		brand, bw = "", 0
+	}
+	if bw+tw+rw+2 > m.w {
+		right, rw = "", 0
+	}
 	leftPad := (m.w-tw)/2 - bw
 	if leftPad < 1 {
 		leftPad = 1
@@ -404,7 +420,7 @@ func (m Model) tabBar() string {
 	if rightPad < 1 {
 		rightPad = 1
 	}
-	return brand + spaces(leftPad) + tabsStr + spaces(rightPad) + right
+	return padRender(brand+spaces(leftPad)+tabsStr+spaces(rightPad)+right, m.w)
 }
 
 // tabStart is the x column where the (centered) tab strip begins; tabBar and
@@ -589,6 +605,13 @@ func (m Model) helpLine(budget int) string {
 			hints = [][2]string{{"↑↓", "issues"}, {"tab", "board"}, {"+-", "zoom"}, {"t/b/i", "3D"},
 				{"enter", "export"}, tabHint(true), {"esc", "back"}}
 		}
+	case modeDiff:
+		if m.diff.field.Focused() {
+			hints = [][2]string{{"type", "bom path"}, {"enter", "compare"}, tabHint(false), {"esc", "back"}}
+			break
+		}
+		hints = [][2]string{{"↑↓", "findings"}, {"tab", "bom path"}, {"enter", "compare"},
+			{"s", "serious only"}, tabHint(true), {"esc", "back"}}
 	}
 	var parts []string
 	width := 0

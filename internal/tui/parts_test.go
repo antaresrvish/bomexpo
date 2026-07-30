@@ -160,7 +160,7 @@ func TestCompareTabAppearsWithTwoPins(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	if got, want := labels(), "Load,Components,Parts,Check"; got != want {
+	if got, want := labels(), "Load,Components,Parts,Check,Diff"; got != want {
 		t.Errorf("tabs = %s, want %s", got, want)
 	}
 
@@ -174,19 +174,20 @@ func TestCompareTabAppearsWithTwoPins(t *testing.T) {
 	m.parts.cursor = 1
 	mm, _ = m.togglePin()
 	m = mm.(Model)
-	if got, want := labels(), "Load,Components,Parts,Check,Compare"; got != want {
+	if got, want := labels(), "Load,Components,Parts,Check,Diff,Compare"; got != want {
 		t.Errorf("tabs = %s, want %s", got, want)
 	}
 
 	// the digit shortcuts follow the visible tabs
-	for n, want := range map[int]mode{1: modeLoad, 2: modeTable, 3: modeParts, 4: modeCheck, 5: modeCompare} {
+	for n, want := range map[int]mode{1: modeLoad, 2: modeTable, 3: modeParts, 4: modeCheck,
+		5: modeDiff, 6: modeCompare} {
 		got, ok := m.tabMode(n)
 		if !ok || got != want {
 			t.Errorf("tabMode(%d) = %v/%v, want %v", n, got, ok, want)
 		}
 	}
-	if _, ok := m.tabMode(6); ok {
-		t.Error("tabMode(6) should not resolve")
+	if _, ok := m.tabMode(7); ok {
+		t.Error("tabMode(7) should not resolve")
 	}
 }
 
