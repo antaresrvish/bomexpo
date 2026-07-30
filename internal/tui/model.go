@@ -36,21 +36,18 @@ type tabDef struct {
 	label string
 }
 
-// tabs is dynamic: Compare only earns a tab once there's something to compare,
-// which keeps it discoverable without stealing a key from the search field.
+// The tab bar is the job in order: open a design, assign parts to it, check the
+// files agree, export. Parts sits between them as the research tool it is, and
+// Compare hangs off Parts rather than taking a place in the line — two tabs both
+// called some form of "compare" was the confusing part.
 func (m Model) tabs() []tabDef {
-	t := []tabDef{
+	return []tabDef{
 		{modeLoad, "Load"},
 		{modeTable, "Components"},
 		{modeParts, "Parts"},
-		{modeCheck, "Check"},
-		{modeDiff, "Diff"},
+		{modeDiff, "Verify"},
+		{modeCheck, "Export"},
 	}
-	if len(m.parts.pinned) >= 2 {
-		// no count here — the panel title already says how many are pinned
-		t = append(t, tabDef{modeCompare, "Compare"})
-	}
-	return t
 }
 
 // tabMode maps a 1-based tab number to its mode, for the digit shortcuts.

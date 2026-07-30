@@ -305,8 +305,9 @@ func (m Model) cycleTab(dir int) (tea.Model, tea.Cmd) {
 	want := m.mode
 	switch want {
 	case modeSearch, modeNets:
-		// detours off Components, not tabs of their own
-		want = modeTable
+		want = modeTable // detours off Components, not tabs of their own
+	case modeCompare:
+		want = modeParts
 	}
 	for i, t := range tabs {
 		if t.mode == want {
@@ -368,9 +369,9 @@ func (m Model) titleBody() (title, body string) {
 	case modeNets:
 		return "Nets" + projSuffix(m.name), m.viewNets(cw, ch)
 	case modeCheck:
-		return "Final check & export", m.viewCheck(cw, ch)
+		return "Export the order", m.viewCheck(cw, ch)
 	case modeDiff:
-		return "Schematic vs external BOM", m.viewDiff(cw, ch)
+		return "Verify the design against a bom", m.viewDiff(cw, ch)
 	}
 	return "Open project", m.viewLoad(cw, ch)
 }
@@ -386,8 +387,16 @@ func (m Model) tabBar() string {
 	brand := tabBrand.Render("bomexpo")
 	var segs []string
 	for _, t := range m.tabs() {
-		onDetour := m.mode == modeSearch || m.mode == modeNets
-		active := t.mode == m.mode || (onDetour && t.mode == modeTable)
+		// Search and Nets are detours off Components; Compare is one off Parts. None
+		// of them are tabs, so the tab they came from stays lit.
+		home := m.mode
+		switch home {
+		case modeSearch, modeNets:
+			home = modeTable
+		case modeCompare:
+			home = modeParts
+		}
+		active := t.mode == home
 		st := tabInactive
 		if active {
 			st = tabActive
@@ -497,6 +506,9 @@ func (m Model) infoStats() string {
 		costStr += "*"
 	}
 	parts = append(parts, dimStyle.Render("cost ")+okStyle.Render(costStr))
+	if next := m.nextStep(); next != "" {
+		parts = append(parts, next)
+	}
 	return strings.Join(parts, sepStyle.Render("  │  "))
 }
 
@@ -526,17 +538,46 @@ func (m Model) bottomBar() string {
 		left = subtleStyle.Render(m.status)
 	}
 	// The bar has to fit the terminal exactly: one column over and every line of
-	// the view gets padded to match, which shifts the whole page.
-	help := m.helpLine(m.w - lipgloss.Width(left) - 2)
+	// the view gets padded to match, which shifts the whole page. Two columns are
+	// held back for the gap so the status and the keys never read as one phrase.
+	help := m.helpLine(m.w - lipgloss.Width(left) - 3)
 	gap := m.w - lipgloss.Width(left) - lipgloss.Width(help) - 1
-	if gap < 1 {
-		gap = 1
+	if gap < 2 {
+		gap = 2
 	}
 	return " " + left + spaces(gap) + help
 }
 
 // helpLine lists the keys for whatever has focus, dropping hints off the end
 // until they fit the room left over.
+// nextStep names the stage that follows, once this one has nothing left to do. It
+// only speaks when the work is actually finished — a nudge on a half-assigned board
+// would just be noise in the way of the counts.
+func (m Model) nextStep() string {
+	arrow := func(n int, label string) string {
+		return accentStyle.Render(fmt.Sprintf("→ %d %s", n, label))
+	}
+	switch m.mode {
+	case modeTable, modeSearch, modeNets:
+		if len(m.items) == 0 {
+			return ""
+		}
+		if a, _ := m.counts(); a < m.activeCount() {
+			return "" // still parts to assign
+		}
+		return arrow(4, "Verify")
+	case modeDiff:
+		if !m.diff.ran {
+			return ""
+		}
+		if m.diff.res.Severe() > 0 {
+			return ""
+		}
+		return arrow(5, "Export")
+	}
+	return ""
+}
+
 func (m Model) helpLine(budget int) string {
 	var hints [][2]string
 	switch m.mode {

@@ -542,7 +542,7 @@ func (m Model) pinnedFooter(w int) string {
 	left := accentStyle.Render("  ◆ pinned ") + strings.Join(codes, dimStyle.Render(" · "))
 	right := dimStyle.Render("enter pin/unpin · d datasheet")
 	if len(m.parts.pinned) >= 2 {
-		right = okStyle.Render("Compare tab ready") + dimStyle.Render(" · tab to open")
+		right = okStyle.Render("ready to compare") + dimStyle.Render(" · c opens it")
 	}
 	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {

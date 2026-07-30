@@ -8,6 +8,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"bomexpo/internal/kicad"
+	"bomexpo/internal/part"
 )
 
 // Every view with a text field must let tab take the keyboard back, otherwise
@@ -392,5 +395,75 @@ func TestCheckMarksTheFocusedPane(t *testing.T) {
 	}
 	if seen[paneIssues] == seen[paneBoard] {
 		t.Error("moving focus from the issues to the board changed nothing on screen")
+	}
+}
+
+// The tab bar reads as the job in order, and the status line names the next stage
+// once this one is done — but only then, so a half-finished board isn't nagged.
+func TestNextStepOnlySpeaksWhenTheStageIsDone(t *testing.T) {
+	m := filterModel(t)
+	m.w, m.h = 130, 24
+	mm, _ := m.gotoTab(modeTable)
+	m = mm.(Model)
+
+	if got := m.nextStep(); got != "" {
+		t.Errorf("half-assigned board suggests %q", stripANSI(got))
+	}
+	for i := range m.items {
+		p := part.Part{Code: "C1", Stock: 100, Desc: m.items[i].Value,
+			Prices: []part.Price{{Ladder: 1, USD: 0.01}}}
+		m.assigned[i] = &p
+		m.items[i].LCSC = "C1"
+	}
+	if got := stripANSI(m.nextStep()); got != "→ 4 Verify" {
+		t.Errorf("finished board suggests %q, want → 4 Verify", got)
+	}
+	// and the number it names is the tab it means
+	if md, ok := m.tabMode(4); !ok || md != modeDiff {
+		t.Errorf("tab 4 is %v, but the hint sends you there for Verify", md)
+	}
+
+	// Verify only points at Export once nothing serious is left
+	mm, _ = m.gotoTab(modeDiff)
+	m = mm.(Model)
+	m.diff.ran = true
+	m.diff.res = kicad.Compare(&kicad.Schematic{Path: "/tmp/x.kicad_sch"}, nil, nil, kicad.SidePCB)
+	if got := stripANSI(m.nextStep()); got != "→ 5 Export" {
+		t.Errorf("a clean verify suggests %q, want → 5 Export", got)
+	}
+	m.diff.res.Findings = []kicad.Finding{{Kind: kicad.DiffMissing, Ref: "R1"}}
+	if got := m.nextStep(); got != "" {
+		t.Errorf("a verify with a serious finding suggests %q", stripANSI(got))
+	}
+	if md, ok := m.tabMode(5); !ok || md != modeCheck {
+		t.Errorf("tab 5 is %v, but the hint sends you there to Export", md)
+	}
+}
+
+// Compare is reached from Parts and leaves the tab bar unchanged, so the numbers
+// never shift under the user.
+func TestCompareIsADetourOffParts(t *testing.T) {
+	m := filterModel(t)
+	m.w, m.h = 130, 24
+	m.parts.pinned = cmpFixture()
+	before := len(m.tabs())
+
+	mm, _ := m.gotoTab(modeCompare)
+	m = mm.(Model)
+	if m.mode != modeCompare {
+		t.Fatal("could not reach Compare")
+	}
+	if got := len(m.tabs()); got != before {
+		t.Errorf("the tab bar changed from %d to %d tabs", before, got)
+	}
+	// Parts stays lit while you're in its detour
+	bar := stripANSI(m.tabBar())
+	for _, want := range []string{"Load", "Components", "Parts", "Verify", "Export"} {
+		if !strings.Contains(bar, want) {
+			t.Errorf("%q missing from the tab bar: %q", want, bar)
+		}
+	}
+	if strings.Contains(bar, "Compare") {
+		t.Errorf("Compare should not be a tab: %q", bar)
 	}
 }

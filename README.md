@@ -44,15 +44,18 @@ bomexpo ~/designs/drone
 bomexpo bom.csv positions.csv
 ```
 
-Five tabs: **Load** opens a design, **Components** is the table, **Parts** is the parts
-browser, **Check** exports, and **Compare** shows up once you've pinned two parts.
+The tabs are the job in order: **Load** opens a design, **Components** is where you assign
+parts, **Verify** checks the schematic, the board and a BOM agree, and **Export** writes the
+zip. **Parts** sits between them as a research tool — browse and compare parts with or
+without a design open. When a stage has nothing left to do the status line names the next
+one.
 
 ![Load screen](docs/load.png)
 
 Components start unassigned. Search for a part, or press `a` to auto-assign by value,
 package and type. As you move through the table the side panel shows the selected part's
-stock, price and specs next to its footprint. Once everything is assigned and in stock,
-Check writes the zip you upload.
+stock, price and specs next to its footprint. Once everything is assigned and in stock, Export
+writes the zip you upload.
 
 Common keys: `enter` assign · `a` auto-assign · `o` cycle rotation override · `x` exclude
 · `w` write LCSC codes back to the pcb · `t`/`b`/`i` open a 3D render · `r` refresh stock
@@ -96,9 +99,9 @@ category list is crawled from the source and cached for a week, because neither 
 publishes the taxonomy it labels parts with, nor will search by category. A category it
 missed joins the list the first time you search into one.
 
-`p` pins a part, up to four. Pinned parts stay put whatever you search next, and once you
-have two the Compare tab appears: a card each with its footprint on top and every field
-they differ on below, the better value brighter.
+`p` pins a part, up to four. Pinned parts stay put whatever you search next, and with two of
+them `c` opens the comparison: a card each with its footprint on top and every field they
+differ on below, the better value brighter.
 
 ![Compare tab](docs/compare.png)
 
@@ -113,6 +116,13 @@ Landing on a tab never takes the keyboard, so the tab keys keep working — pres
 `tab` when you want to type. On Load, `↓` walks into the directory listing. On Check the
 issue list and the board both want the arrows, so `tab` walks the three panes and `↑↓`
 goes to whichever has them.
+
+### Verify
+
+Verify lines the same designator up across all three descriptions of the board — the
+schematic, the `.kicad_pcb` and a BOM you point it at — and reports value, footprint, part
+code, and anything present on one side but not another. `m` picks which of the three the
+other two are measured against; the board is the default, since that is what gets built.
 
 ## What it does
 
