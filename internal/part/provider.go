@@ -1,6 +1,7 @@
 package part
 
-// Fields a provider can't honour are ignored; check Caps before offering one.
+// Query is one search request. Fields a provider can't honour are ignored, so
+// check Caps before offering one.
 type Query struct {
 	Keyword   string
 	Page      int
@@ -19,7 +20,8 @@ func (q Query) Norm() Query {
 	return q
 }
 
-// Total is the full match count, often far larger than len(Items).
+// Result is one page of hits. Total is the full match count, often far larger
+// than len(Items).
 type Result struct {
 	Items    []Part
 	Total    int
@@ -34,8 +36,8 @@ type Caps struct {
 	Assembly    bool // populates Part.AsmMin and Part.Loss
 }
 
-// Implementations must be safe for concurrent use: the TUI fans out one request
-// per line item.
+// Provider must be safe for concurrent use: the TUI fans out one request per
+// line item.
 type Provider interface {
 	ID() string    // stable identifier used in config and CLI flags
 	Label() string // display name
