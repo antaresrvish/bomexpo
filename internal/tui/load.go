@@ -287,7 +287,23 @@ func listDir(input string, maxN int) (dir, filter string, entries []fsEntry) {
 }
 
 func completePath(input string) (string, bool) {
-	dir, filter, entries := listDir(input, 500)
+	return complete(input, nil)
+}
+
+// complete extends input as far as the directory allows. keep, when given, drops
+// entries the field has no use for, so a completion never lands on a file the
+// caller would reject.
+func complete(input string, keep func(fsEntry) bool) (string, bool) {
+	dir, filter, all := listDir(input, 500)
+	entries := all
+	if keep != nil {
+		entries = nil
+		for _, e := range all {
+			if e.isDir || keep(e) {
+				entries = append(entries, e)
+			}
+		}
+	}
 	if len(entries) == 0 {
 		return input, false
 	}

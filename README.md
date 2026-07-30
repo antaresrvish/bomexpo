@@ -44,15 +44,34 @@ bomexpo ~/designs/drone
 bomexpo bom.csv positions.csv
 ```
 
-Five tabs: **Load** opens a design, **Components** is the table, **Parts** is the parts
-browser, **Check** exports, and **Compare** shows up once you've pinned two parts.
+The tabs are the job in order: **Load** opens a design, **Components** is where you assign
+parts, **Export** writes the zip. **Parts** sits between them as a research tool — browse and
+compare parts with or without a design open. When a stage has nothing left to do the status
+line names the next one.
+
+Two things hang off a tab rather than taking a number of their own: `c` in Parts compares
+pinned parts, and `v` in Export verifies a BOM against the design.
 
 ![Load screen](docs/load.png)
 
 Components start unassigned. Search for a part, or press `a` to auto-assign by value,
 package and type. As you move through the table the side panel shows the selected part's
-stock, price and specs next to its footprint. Once everything is assigned and in stock,
-Check writes the zip you upload.
+stock, price and specs next to its footprint. Once everything is assigned and in stock, Export
+writes the zip you upload.
+
+Exporting a board with open issues asks first, and the question lists them — a part with
+nothing assigned will simply be missing from the BOM, and that is worth reading before you
+agree to it. A clean board exports without the interruption.
+
+In Export, the parts-cost table is computed rather than fixed: it lists the board counts
+where the price per board actually changes, and says which part changes there — a part used
+four times per board crosses its 100-piece break at 25 boards, not 100. `q` sets the number
+you're really ordering and the table marks it. `enter` on an issue opens that part in
+Components.
+
+Those are **part costs only**. The bare board, the stencil, SMT setup, extended-part fees,
+panel rails and shipping are the assembler's to quote, so their invoice will be higher —
+on a recent 350-board run, $4.94 a board in parts against $5.90 quoted.
 
 Common keys: `enter` assign · `a` auto-assign · `o` cycle rotation override · `x` exclude
 · `w` write LCSC codes back to the pcb · `t`/`b`/`i` open a 3D render · `r` refresh stock
@@ -96,9 +115,9 @@ category list is crawled from the source and cached for a week, because neither 
 publishes the taxonomy it labels parts with, nor will search by category. A category it
 missed joins the list the first time you search into one.
 
-`p` pins a part, up to four. Pinned parts stay put whatever you search next, and once you
-have two the Compare tab appears: a card each with its footprint on top and every field
-they differ on below, the better value brighter.
+`p` pins a part, up to four. Pinned parts stay put whatever you search next, and with two of
+them `c` opens the comparison: a card each with its footprint on top and every field they
+differ on below, the better value brighter.
 
 ![Compare tab](docs/compare.png)
 
@@ -113,6 +132,21 @@ Landing on a tab never takes the keyboard, so the tab keys keep working — pres
 `tab` when you want to type. On Load, `↓` walks into the directory listing. On Check the
 issue list and the board both want the arrows, so `tab` walks the three panes and `↑↓`
 goes to whichever has them.
+
+### Verify a BOM against the design
+
+`v` in Export lines the same designator up across all three descriptions of the board — the
+schematic, the `.kicad_pcb` and a BOM — and reports value, footprint, part code, and
+anything present on one side but not another. `m` picks which of the three the other two are
+measured against; the board is the default, since that is what gets built.
+
+It answers two questions. Before ordering: does this BOM match the design? After an order
+came back wrong: which lines of what I sent were wrong? For the second one you don't need
+the old file — every zip bomexpo exports carries its `bom.csv`, so `o` reaches for the last
+order beside the project and `O` steps back through older ones.
+
+`enter` on a finding opens that part in Components with the cursor on it, so the thing you
+just found is the thing you're about to fix. `r` runs the comparison again.
 
 ## What it does
 

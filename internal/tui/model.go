@@ -28,6 +28,7 @@ const (
 	modeCompare
 	modeNets
 	modeCheck
+	modeDiff
 )
 
 type tabDef struct {
@@ -35,20 +36,20 @@ type tabDef struct {
 	label string
 }
 
-// tabs is dynamic: Compare only earns a tab once there's something to compare,
-// which keeps it discoverable without stealing a key from the search field.
+// The tab bar is the job in order: open a design, assign parts to it, export. Parts
+// sits between them as the research tool it is.
+//
+// Only the things you touch every session get a number. Compare hangs off Parts and
+// Verify off Export — Verify answers "does this match the design" and "which lines
+// of what I sent were wrong", both of which come up at the moment you are about to
+// order or have just been burned by one. Rare, but exactly there.
 func (m Model) tabs() []tabDef {
-	t := []tabDef{
+	return []tabDef{
 		{modeLoad, "Load"},
 		{modeTable, "Components"},
 		{modeParts, "Parts"},
-		{modeCheck, "Check"},
+		{modeCheck, "Export"},
 	}
-	if len(m.parts.pinned) >= 2 {
-		// no count here — the panel title already says how many are pinned
-		t = append(t, tabDef{modeCompare, "Compare"})
-	}
-	return t
 }
 
 // tabMode maps a 1-based tab number to its mode, for the digit shortcuts.
@@ -87,6 +88,7 @@ type Model struct {
 	check   checkState
 	filter  filterState
 	nets    netState
+	diff    diffState
 
 	name        string
 	pcbPath     string // empty for a CSV design
@@ -175,6 +177,7 @@ func New(opt Options) Model {
 	m.check = newCheckState()
 	m.filter = newFilterState()
 	m.nets = newNetState()
+	m.diff = newDiffState()
 	m.boardv = newBoardState()
 	return m
 }

@@ -8,6 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"bomexpo/internal/part"
 )
 
 // Every view with a text field must let tab take the keyboard back, otherwise
@@ -329,13 +331,13 @@ func TestCheckPaneRing(t *testing.T) {
 		t.Fatalf("landing on Check starts at pane %v, want the issues", m.check.pane)
 	}
 
-	// with the issues focused, down scrolls the list and leaves the board alone
-	m.check.top = 0
+	// with the issues focused, down moves the issue cursor and leaves the board alone
+	m.check.cur, m.check.top = 0, 0
 	before := m.boardv
 	mm, _ = m.updateCheck(key("down"))
 	m = mm.(Model)
-	if m.check.top != 1 {
-		t.Errorf("down should scroll the issues, top = %d", m.check.top)
+	if m.check.cur != 1 {
+		t.Errorf("down should move the issue cursor, cur = %d", m.check.cur)
 	}
 	if m.boardv != before {
 		t.Error("down should not have panned the board")
@@ -347,14 +349,14 @@ func TestCheckPaneRing(t *testing.T) {
 	if m.check.pane != paneBoard {
 		t.Fatalf("tab went to pane %v, want the board", m.check.pane)
 	}
-	top, before := m.check.top, m.boardv
+	cur, before := m.check.cur, m.boardv
 	mm, _ = m.updateCheck(key("down"))
 	m = mm.(Model)
 	if m.boardv == before {
 		t.Error("down should pan the board once it has focus")
 	}
-	if m.check.top != top {
-		t.Error("down should no longer scroll the issues")
+	if m.check.cur != cur {
+		t.Error("down should no longer move the issue cursor")
 	}
 
 	// round the ring to the path and back
@@ -392,5 +394,113 @@ func TestCheckMarksTheFocusedPane(t *testing.T) {
 	}
 	if seen[paneIssues] == seen[paneBoard] {
 		t.Error("moving focus from the issues to the board changed nothing on screen")
+	}
+}
+
+// The tab bar reads as the job in order, and the status line names the next stage
+// once this one is done — but only then, so a half-finished board isn't nagged.
+func TestNextStepOnlySpeaksWhenTheStageIsDone(t *testing.T) {
+	m := filterModel(t)
+	m.w, m.h = 130, 24
+	mm, _ := m.gotoTab(modeTable)
+	m = mm.(Model)
+
+	if got := m.nextStep(); got != "" {
+		t.Errorf("half-assigned board suggests %q", stripANSI(got))
+	}
+	for i := range m.items {
+		p := part.Part{Code: "C1", Stock: 100, Desc: m.items[i].Value,
+			Prices: []part.Price{{Ladder: 1, USD: 0.01}}}
+		m.assigned[i] = &p
+		m.items[i].LCSC = "C1"
+	}
+	if got := stripANSI(m.nextStep()); got != "→ 4 Export" {
+		t.Errorf("finished board suggests %q, want → 4 Export", got)
+	}
+	// the number it names is the tab it means
+	if md, ok := m.tabMode(4); !ok || md != modeCheck {
+		t.Errorf("tab 4 is %v, but the hint sends you there to Export", md)
+	}
+}
+
+// Compare is reached from Parts and leaves the tab bar unchanged, so the numbers
+// never shift under the user.
+func TestCompareIsADetourOffParts(t *testing.T) {
+	m := filterModel(t)
+	m.w, m.h = 130, 24
+	m.parts.pinned = cmpFixture()
+	before := len(m.tabs())
+
+	mm, _ := m.gotoTab(modeCompare)
+	m = mm.(Model)
+	if m.mode != modeCompare {
+		t.Fatal("could not reach Compare")
+	}
+	if got := len(m.tabs()); got != before {
+		t.Errorf("the tab bar changed from %d to %d tabs", before, got)
+	}
+	// Parts stays lit while you're in its detour
+	bar := stripANSI(m.tabBar())
+	for _, want := range []string{"Load", "Components", "Parts", "Export"} {
+		if !strings.Contains(bar, want) {
+			t.Errorf("%q missing from the tab bar: %q", want, bar)
+		}
+	}
+	if strings.Contains(bar, "Compare") {
+		t.Errorf("Compare should not be a tab: %q", bar)
+	}
+}
+
+// Reaching into the results with the arrows means you are done typing: the field lets
+// go so the letters become commands, and esc puts you back in it.
+func TestArrowIntoResultsHandsOverTheKeyboard(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		enter func(Model) Model
+		down  func(Model) Model
+		esc   func(Model) Model
+		on    func(Model) bool
+		text  func(Model) string
+	}{
+		{
+			name:  "search",
+			enter: func(m Model) Model { mm, _ := m.openSearch(0); return mm.(Model) },
+			down:  func(m Model) Model { mm, _ := m.updateSearchKey(key("down")); return mm.(Model) },
+			esc:   func(m Model) Model { mm, _ := m.updateSearchKey(key("esc")); return mm.(Model) },
+			on:    func(m Model) bool { return m.search.field.Focused() },
+			text:  func(m Model) string { return m.search.field.Value() },
+		},
+		{
+			name: "parts",
+			enter: func(m Model) Model {
+				mm, _ := m.gotoTab(modeParts)
+				return queryFocus(mm.(Model))
+			},
+			down: func(m Model) Model { mm, _ := m.updatePartsKey(key("down")); return mm.(Model) },
+			esc:  func(m Model) Model { mm, _ := m.updatePartsKey(key("esc")); return mm.(Model) },
+			on:   func(m Model) bool { return m.parts.field.Focused() },
+			text: func(m Model) string { return m.parts.field.Value() },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := netModel(t)
+			m.w, m.h = 130, 26
+			m = tc.enter(m)
+			if !tc.on(m) {
+				t.Fatal("the query should have the keyboard on the way in")
+			}
+			m = tc.down(m)
+			if tc.on(m) {
+				t.Error("down into the results should hand the keyboard over")
+			}
+			if tc.text(m) == "" {
+				// give it something to come back to
+				return
+			}
+			m = tc.esc(m)
+			if !tc.on(m) {
+				t.Error("esc should go back to what you typed")
+			}
+		})
 	}
 }

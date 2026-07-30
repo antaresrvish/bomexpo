@@ -307,7 +307,11 @@ func (m Model) updatePartsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		if typing {
-			m.parts.field.Blur() // one esc leaves the field, the next leaves the tab
+			m.mode = modeTable // in the field, esc leaves the tab
+			return m, nil
+		}
+		if m.parts.field.Value() != "" {
+			m.parts.field.Focus() // out of it, esc goes back to what you typed
 			return m, nil
 		}
 		m.mode = modeTable
@@ -319,10 +323,14 @@ func (m Model) updatePartsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.togglePin()
 	case "down", "ctrl+n":
+		// Reaching into the results means you are done typing, so the field lets go
+		// and the letters become commands. esc puts you back in it.
+		m.parts.field.Blur()
 		m.parts.cursor = min(len(m.parts.rows())-1, m.parts.cursor+1)
 		m.parts.clamp(m.partsRows())
 		return m, nil
 	case "up", "ctrl+p":
+		m.parts.field.Blur()
 		m.parts.cursor = max(0, m.parts.cursor-1)
 		m.parts.clamp(m.partsRows())
 		return m, nil
@@ -542,7 +550,7 @@ func (m Model) pinnedFooter(w int) string {
 	left := accentStyle.Render("  ◆ pinned ") + strings.Join(codes, dimStyle.Render(" · "))
 	right := dimStyle.Render("enter pin/unpin · d datasheet")
 	if len(m.parts.pinned) >= 2 {
-		right = okStyle.Render("Compare tab ready") + dimStyle.Render(" · tab to open")
+		right = okStyle.Render("ready to compare") + dimStyle.Render(" · c opens it")
 	}
 	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {

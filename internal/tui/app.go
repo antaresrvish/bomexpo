@@ -55,6 +55,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case catsLoadedMsg:
 		return m.updateCatsLoaded(msg)
 
+	case diffDoneMsg:
+		return m.updateDiffDone(msg)
+
 	case footprintDoneMsg:
 		// a failed download just leaves the card showing the package name
 		if msg.err == nil && len(msg.fp.Lands) > 0 && m.edaLands != nil {
@@ -230,6 +233,8 @@ func (m Model) routeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updateNetKey(msg)
 	case modeCheck:
 		return m.updateCheck(msg)
+	case modeDiff:
+		return m.updateDiffKey(msg)
 	}
 	return m, nil
 }
@@ -300,8 +305,11 @@ func (m Model) cycleTab(dir int) (tea.Model, tea.Cmd) {
 	want := m.mode
 	switch want {
 	case modeSearch, modeNets:
-		// detours off Components, not tabs of their own
-		want = modeTable
+		want = modeTable // detours off Components, not tabs of their own
+	case modeCompare:
+		want = modeParts
+	case modeDiff:
+		want = modeCheck
 	}
 	for i, t := range tabs {
 		if t.mode == want {
@@ -363,7 +371,12 @@ func (m Model) titleBody() (title, body string) {
 	case modeNets:
 		return "Nets" + projSuffix(m.name), m.viewNets(cw, ch)
 	case modeCheck:
-		return "Final check & export", m.viewCheck(cw, ch)
+		if m.check.confirm.open {
+			return "Export the order", m.viewConfirm(cw, ch)
+		}
+		return "Export the order", m.viewCheck(cw, ch)
+	case modeDiff:
+		return "Verify the design against a bom", m.viewDiff(cw, ch)
 	}
 	return "Open project", m.viewLoad(cw, ch)
 }
@@ -379,8 +392,18 @@ func (m Model) tabBar() string {
 	brand := tabBrand.Render("bomexpo")
 	var segs []string
 	for _, t := range m.tabs() {
-		onDetour := m.mode == modeSearch || m.mode == modeNets
-		active := t.mode == m.mode || (onDetour && t.mode == modeTable)
+		// Search and Nets are detours off Components; Compare is one off Parts. None
+		// of them are tabs, so the tab they came from stays lit.
+		home := m.mode
+		switch home {
+		case modeSearch, modeNets:
+			home = modeTable
+		case modeCompare:
+			home = modeParts
+		case modeDiff:
+			home = modeCheck
+		}
+		active := t.mode == home
 		st := tabInactive
 		if active {
 			st = tabActive
@@ -396,6 +419,15 @@ func (m Model) tabBar() string {
 	}
 
 	bw, tw, rw := lipgloss.Width(brand), lipgloss.Width(tabsStr), lipgloss.Width(right)
+	// Narrow terminals drop the brand and then the counts, in that order, before
+	// the tabs give up a column — one column over and every line of the view pads
+	// out to match, which slides the whole page.
+	if bw+tw+rw+2 > m.w {
+		brand, bw = "", 0
+	}
+	if bw+tw+rw+2 > m.w {
+		right, rw = "", 0
+	}
 	leftPad := (m.w-tw)/2 - bw
 	if leftPad < 1 {
 		leftPad = 1
@@ -404,7 +436,7 @@ func (m Model) tabBar() string {
 	if rightPad < 1 {
 		rightPad = 1
 	}
-	return brand + spaces(leftPad) + tabsStr + spaces(rightPad) + right
+	return padRender(brand+spaces(leftPad)+tabsStr+spaces(rightPad)+right, m.w)
 }
 
 // tabStart is the x column where the (centered) tab strip begins; tabBar and
@@ -481,6 +513,9 @@ func (m Model) infoStats() string {
 		costStr += "*"
 	}
 	parts = append(parts, dimStyle.Render("cost ")+okStyle.Render(costStr))
+	if next := m.nextStep(); next != "" {
+		parts = append(parts, next)
+	}
 	return strings.Join(parts, sepStyle.Render("  │  "))
 }
 
@@ -510,17 +545,38 @@ func (m Model) bottomBar() string {
 		left = subtleStyle.Render(m.status)
 	}
 	// The bar has to fit the terminal exactly: one column over and every line of
-	// the view gets padded to match, which shifts the whole page.
-	help := m.helpLine(m.w - lipgloss.Width(left) - 2)
+	// the view gets padded to match, which shifts the whole page. Two columns are
+	// held back for the gap so the status and the keys never read as one phrase.
+	help := m.helpLine(m.w - lipgloss.Width(left) - 3)
 	gap := m.w - lipgloss.Width(left) - lipgloss.Width(help) - 1
-	if gap < 1 {
-		gap = 1
+	if gap < 2 {
+		gap = 2
 	}
 	return " " + left + spaces(gap) + help
 }
 
 // helpLine lists the keys for whatever has focus, dropping hints off the end
 // until they fit the room left over.
+// nextStep names the stage that follows, once this one has nothing left to do. It
+// only speaks when the work is actually finished — a nudge on a half-assigned board
+// would just be noise in the way of the counts.
+func (m Model) nextStep() string {
+	arrow := func(n int, label string) string {
+		return accentStyle.Render(fmt.Sprintf("→ %d %s", n, label))
+	}
+	switch m.mode {
+	case modeTable, modeSearch, modeNets:
+		if len(m.items) == 0 {
+			return ""
+		}
+		if a, _ := m.counts(); a < m.activeCount() {
+			return "" // still parts to assign
+		}
+		return arrow(4, "Export")
+	}
+	return ""
+}
+
 func (m Model) helpLine(budget int) string {
 	var hints [][2]string
 	switch m.mode {
@@ -578,6 +634,10 @@ func (m Model) helpLine(budget int) string {
 		}
 		hints = [][2]string{{"↑↓", "nets"}, {"enter", "filter by it"}, {"/", "narrow"}, {"esc", "back"}}
 	case modeCheck:
+		if m.check.confirm.open {
+			hints = [][2]string{{"←→", "answer"}, {"enter", "pick it"}, {"y", "export"}, {"n", "go back"}}
+			break
+		}
 		switch m.check.pane {
 		case paneOut:
 			hints = [][2]string{{"type", "output path"}, {"enter", "export"}, {"tab", "issues"},
@@ -586,9 +646,17 @@ func (m Model) helpLine(budget int) string {
 			hints = [][2]string{{"↑↓←→", "pan"}, {"+-", "zoom"}, {"0", "reset"}, {"t/b/i", "3D"},
 				{"tab", "output path"}, tabHint(true), {"esc", "back"}}
 		default:
-			hints = [][2]string{{"↑↓", "issues"}, {"tab", "board"}, {"+-", "zoom"}, {"t/b/i", "3D"},
-				{"enter", "export"}, tabHint(true), {"esc", "back"}}
+			hints = [][2]string{{"↑↓", "issues"}, {"enter", "open it"}, {"q", "board count"},
+				{"v", "verify"}, {"x", "export"}, {"tab", "board"}, tabHint(true)}
 		}
+	case modeDiff:
+		if m.diff.field.Focused() {
+			hints = [][2]string{{"type", "bom path"}, {"enter", "compare"}, tabHint(false), {"esc", "back"}}
+			break
+		}
+		hints = [][2]string{{"enter", "open in Components"}, {"↑↓", "move"}, {"o", "last order"},
+			{"s", m.diff.show.String()}, {"m", "vs " + m.diff.ref.String()},
+			{"r", "again"}, {"esc", "back to Export"}}
 	}
 	var parts []string
 	width := 0

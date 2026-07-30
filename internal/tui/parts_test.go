@@ -150,7 +150,9 @@ func TestPinDetailReplacesOnlyMatchingPin(t *testing.T) {
 	}
 }
 
-func TestCompareTabAppearsWithTwoPins(t *testing.T) {
+// The tab bar is the job in order, and it never changes shape: Compare is a detour
+// off Parts, not a sixth tab that appears and shifts every number along.
+func TestTabBarIsTheJobInOrder(t *testing.T) {
 	m := partsModel(t, lcscPart("C1", "A", 1, 1), lcscPart("C2", "B", 1, 1))
 
 	labels := func() string {
@@ -160,7 +162,7 @@ func TestCompareTabAppearsWithTwoPins(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	if got, want := labels(), "Load,Components,Parts,Check"; got != want {
+	if got, want := labels(), "Load,Components,Parts,Export"; got != want {
 		t.Errorf("tabs = %s, want %s", got, want)
 	}
 
@@ -168,25 +170,25 @@ func TestCompareTabAppearsWithTwoPins(t *testing.T) {
 	mm, _ := m.togglePin()
 	m = mm.(Model)
 	if got := labels(); strings.Contains(got, "Compare") {
-		t.Errorf("one pin should not earn a Compare tab: %s", got)
+		t.Errorf("Compare is a detour off Parts, not a tab: %s", got)
 	}
 
 	m.parts.cursor = 1
 	mm, _ = m.togglePin()
 	m = mm.(Model)
-	if got, want := labels(), "Load,Components,Parts,Check,Compare"; got != want {
+	if got, want := labels(), "Load,Components,Parts,Export"; got != want {
 		t.Errorf("tabs = %s, want %s", got, want)
 	}
 
 	// the digit shortcuts follow the visible tabs
-	for n, want := range map[int]mode{1: modeLoad, 2: modeTable, 3: modeParts, 4: modeCheck, 5: modeCompare} {
+	for n, want := range map[int]mode{1: modeLoad, 2: modeTable, 3: modeParts, 4: modeCheck} {
 		got, ok := m.tabMode(n)
 		if !ok || got != want {
 			t.Errorf("tabMode(%d) = %v/%v, want %v", n, got, ok, want)
 		}
 	}
-	if _, ok := m.tabMode(6); ok {
-		t.Error("tabMode(6) should not resolve")
+	if _, ok := m.tabMode(5); ok {
+		t.Error("tabMode(5) should not resolve")
 	}
 }
 

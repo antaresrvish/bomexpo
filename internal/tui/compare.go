@@ -357,7 +357,7 @@ func (m Model) viewCompare(w, h int) string {
 
 func (m Model) compareLegend() string {
 	return okStyle.Render("▴") + dimStyle.Render(" best of these   ") +
-		dimStyle.Render("tab or ←→ card · ↑↓ more fields · x unpin · d datasheet · esc back")
+		dimStyle.Render("tab or ←→ card · ↑↓ more fields · x unpin · d datasheet · esc back to Parts")
 }
 
 // compareShared is the top pane: the fields every pinned part answers the same

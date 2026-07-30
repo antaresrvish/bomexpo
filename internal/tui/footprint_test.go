@@ -103,7 +103,7 @@ func TestCheckPageCarriesTheBoard(t *testing.T) {
 	m.mode = modeCheck
 	out := stripANSI(m.viewCheck(m.contentW(), m.contentH()))
 
-	if !strings.Contains(out, "Volume pricing") {
+	if !strings.Contains(out, "Parts cost") {
 		t.Error("the pricing table should still be there")
 	}
 	if !strings.Contains(out, "▀") {
@@ -114,7 +114,7 @@ func TestCheckPageCarriesTheBoard(t *testing.T) {
 	// pane's caption on the right
 	var row string
 	for _, ln := range strings.Split(out, "\n") {
-		if strings.Contains(ln, "Volume pricing") {
+		if strings.Contains(ln, "Parts cost") {
 			row = ln
 			break
 		}
@@ -123,7 +123,7 @@ func TestCheckPageCarriesTheBoard(t *testing.T) {
 		t.Fatal("no pricing row found")
 	}
 	// the left half must not run past the middle
-	if mid := m.contentW() / 2; strings.Index(row, "Volume pricing") >= mid {
+	if mid := m.contentW() / 2; strings.Index(row, "Parts cost") >= mid {
 		t.Errorf("the pricing block should be in the left half: %q", row)
 	}
 
