@@ -30,23 +30,50 @@ type diffState struct {
 	err    string
 	cursor int
 	top    int
-	// severeOnly hides everything that wouldn't spoil an order.
-	severeOnly bool
+	// show is how much of the comparison is on screen. It starts on everything:
+	// a report that lists only problems looks identical to one that ran nothing.
+	show diffShow
+}
+
+type diffShow int
+
+const (
+	// showAll lines every designator up, agreeing or not.
+	showAll diffShow = iota
+	showProblems
+	showSerious
+)
+
+func (v diffShow) String() string {
+	switch v {
+	case showProblems:
+		return "differences"
+	case showSerious:
+		return "serious only"
+	}
+	return "every part"
 }
 
 func newDiffState() diffState {
 	return diffState{field: newField("› ", "path to the bom csv to compare against…", 56)}
 }
 
-// findings is the report as filtered.
-func (s diffState) findings() []kicad.Finding {
-	if !s.severeOnly {
-		return s.res.Findings
+// rows is the comparison as filtered.
+func (s diffState) rows() []kicad.Row {
+	if s.show == showAll {
+		return s.res.Rows
 	}
-	var out []kicad.Finding
-	for _, f := range s.res.Findings {
-		if f.Kind.Severe() {
-			out = append(out, f)
+	var out []kicad.Row
+	for _, r := range s.res.Rows {
+		switch s.show {
+		case showProblems:
+			if !r.Agrees() {
+				out = append(out, r)
+			}
+		case showSerious:
+			if r.Severe() {
+				out = append(out, r)
+			}
 		}
 	}
 	return out
@@ -164,27 +191,27 @@ func (m Model) updateDiffKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter", "r":
 		return m.startDiff()
 	case "s":
-		m.diff.severeOnly = !m.diff.severeOnly
+		m.diff.show = (m.diff.show + 1) % 3
 		m.diff.cursor, m.diff.top = 0, 0
 	case "up", "k":
 		m.diff.cursor = max(0, m.diff.cursor-1)
 	case "down", "j":
-		m.diff.cursor = min(len(m.diff.findings())-1, m.diff.cursor+1)
+		m.diff.cursor = min(len(m.diff.rows())-1, m.diff.cursor+1)
 	case "g", "home":
 		m.diff.cursor = 0
 	case "G", "end":
-		m.diff.cursor = max(0, len(m.diff.findings())-1)
+		m.diff.cursor = max(0, len(m.diff.rows())-1)
 	case "pgup":
 		m.diff.cursor = max(0, m.diff.cursor-m.diffRows())
 	case "pgdown":
-		m.diff.cursor = min(len(m.diff.findings())-1, m.diff.cursor+m.diffRows())
+		m.diff.cursor = min(len(m.diff.rows())-1, m.diff.cursor+m.diffRows())
 	}
 	m.clampDiff()
 	return m, nil
 }
 
 func (m *Model) clampDiff() {
-	n := len(m.diff.findings())
+	n := len(m.diff.rows())
 	if n == 0 {
 		m.diff.cursor, m.diff.top = 0, 0
 		return
@@ -233,6 +260,31 @@ func diffKindStyle(k kicad.DiffKind) lipgloss.Style {
 		return warnStyle
 	}
 	return subtleStyle
+}
+
+// diffRowStyle colours a whole row: red for what breaks an order, amber for what
+// merits a look, dim for the ones that agree.
+func diffRowStyle(r kicad.Row) lipgloss.Style {
+	switch {
+	case r.Agrees():
+		return dimStyle
+	case r.Severe():
+		return badStyle
+	}
+	return warnStyle
+}
+
+// diffMark is the gutter: the row's verdict at a glance.
+func diffMark(r kicad.Row) string {
+	switch {
+	case r.Severe():
+		return badStyle.Render("! ")
+	case !r.Agrees():
+		return warnStyle.Render("~ ")
+	case r.DNP || r.OffBOM:
+		return dimStyle.Render("∅ ")
+	}
+	return okStyle.Render("✓ ")
 }
 
 func (m Model) viewDiff(w, h int) string {
@@ -288,38 +340,39 @@ func (m Model) viewDiff(w, h int) string {
 		}, " | "), w)),
 		borderStyle.Render(strings.Repeat("─", w)))
 
-	f := s.findings()
+	rows := s.rows()
 	vis := m.diffRows()
-	for i := s.top; i < min(len(f), s.top+vis); i++ {
-		fd := f[i]
-		mark := "  "
-		if fd.Kind.Severe() {
-			mark = "! "
-		}
+	for i := s.top; i < min(len(rows), s.top+vis); i++ {
+		r := rows[i]
+		// The two sides carry the same fields in the same order, so a difference
+		// jumps out by sitting directly across from its counterpart.
 		plain := []string{
-			pad(trunc(fd.Ref, refW), refW),
-			pad(trunc(fd.Kind.String(), kindW), kindW),
-			pad(trunc(fd.Sch, sideW), sideW),
-			pad(trunc(fd.BOM, sideW), sideW),
+			pad(trunc(r.Ref, refW), refW),
+			pad(trunc(r.What(), kindW), kindW),
+			pad(trunc(r.SchBoth(), sideW), sideW),
+			pad(trunc(r.BOMBoth(), sideW), sideW),
 		}
 		if i == s.cursor {
-			lines = append(lines, selRowStyle.Render(padRender(mark+strings.Join(plain, "   "), w)))
+			lines = append(lines, selRowStyle.Render(padRender(diffMark(r)+strings.Join(plain, "   "), w)))
 			continue
 		}
-		lines = append(lines, padRender(diffKindStyle(fd.Kind).Render(mark)+strings.Join([]string{
-			accentStyle.Render(plain[0]),
-			diffKindStyle(fd.Kind).Render(plain[1]),
-			subtleStyle.Render(plain[2]),
-			dimStyle.Render(plain[3]),
+		st := diffRowStyle(r)
+		ref := accentStyle
+		if r.Agrees() {
+			ref = subtleStyle
+		}
+		lines = append(lines, padRender(diffMark(r)+strings.Join([]string{
+			ref.Render(plain[0]),
+			st.Render(plain[1]),
+			diffSide(r, r.SchBoth(), plain[2], true),
+			diffSide(r, r.BOMBoth(), plain[3], false),
 		}, sepStyle.Render(" | ")), w))
 	}
-	if s.ran && len(f) == 0 {
-		if s.severeOnly && len(s.res.Findings) > 0 {
-			lines = append(lines, dimStyle.Render(fmt.Sprintf(
-				"  nothing serious — %d lesser findings hidden, press s", len(s.res.Findings))))
-		} else {
-			lines = append(lines, okStyle.Render("  the schematic and that bom agree"))
-		}
+	if s.ran && len(rows) == 0 {
+		hidden := len(s.res.Rows)
+		lines = append(lines, dimStyle.Render(fmt.Sprintf(
+			"  nothing at this filter — %d designators hidden, press s for %s",
+			hidden, (s.show+1)%3)))
 	}
 
 	for len(lines) < h-1 {
@@ -327,6 +380,18 @@ func (m Model) viewDiff(w, h int) string {
 	}
 	lines = lines[:h-1]
 	return strings.Join(lines, "\n") + "\n" + m.diffFooter(w)
+}
+
+// diffSide highlights a side only when this row disagrees, so the eye lands on the
+// pairs that need reading rather than on all of them.
+func diffSide(r kicad.Row, _ string, cell string, sch bool) string {
+	if r.Agrees() {
+		return dimStyle.Render(cell)
+	}
+	if sch {
+		return okStyle.Render(cell) // the schematic is the side you trust
+	}
+	return diffRowStyle(r).Render(cell)
 }
 
 // diffCandidateLine shows what tab would complete to, so the key isn't a guess.
@@ -383,16 +448,17 @@ func (m Model) diffFooter(w int) string {
 	if m.diff.field.Focused() {
 		return dimStyle.Render("  tab complete · enter compare · esc leaves the path")
 	}
-	left := dimStyle.Render("  tab edit the path · enter compare · s ")
-	if m.diff.severeOnly {
-		left += okStyle.Render("serious only")
-	} else {
-		left += subtleStyle.Render("everything")
+	left := dimStyle.Render("  tab path · enter compare · s showing ") +
+		accentStyle.Render(m.diff.show.String())
+	right := dimStyle.Render(fmt.Sprintf("%d of %d · ↑↓ move · esc back",
+		len(m.diff.rows()), len(m.diff.res.Rows)))
+	// The counts matter more than the key list when it's tight.
+	if lipgloss.Width(left)+lipgloss.Width(right)+1 > w {
+		left = dimStyle.Render("  s ") + accentStyle.Render(m.diff.show.String())
 	}
-	right := dimStyle.Render("↑↓ findings · esc back")
 	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
 	}
-	return left + spaces(gap) + right
+	return padRender(left+spaces(gap)+right, w)
 }

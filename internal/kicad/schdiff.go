@@ -64,13 +64,64 @@ type Finding struct {
 	BOM  string // what the BOM says
 }
 
+// Row is one designator with both sides lined up, whether or not they agree. The
+// report is built from these so a clean comparison still shows its work — a screen
+// that says "all good" and lists nothing is indistinguishable from one that did
+// nothing.
+type Row struct {
+	Ref          string
+	SchValue     string
+	SchFootprint string
+	BOMValue     string
+	BOMFootprint string
+	BOMCode      string
+	InSch        bool
+	InBOM        bool
+	DNP          bool // the schematic marks it do-not-populate
+	OffBOM       bool // the schematic keeps it off the BOM
+	Kinds        []DiffKind
+}
+
+// Agrees reports whether this designator came out clean.
+func (r Row) Agrees() bool { return len(r.Kinds) == 0 }
+
+// Severe reports whether anything wrong here would spoil an order.
+func (r Row) Severe() bool {
+	for _, k := range r.Kinds {
+		if k.Severe() {
+			return true
+		}
+	}
+	return false
+}
+
+// What names the disagreements, or says the designator is fine.
+func (r Row) What() string {
+	if len(r.Kinds) == 0 {
+		switch {
+		case r.DNP:
+			return "dnp, left out"
+		case r.OffBOM:
+			return "off the bom"
+		}
+		return "agrees"
+	}
+	var out []string
+	for _, k := range r.Kinds {
+		out = append(out, k.String())
+	}
+	return strings.Join(out, " + ")
+}
+
 // SchDiff is the whole comparison.
 type SchDiff struct {
 	SchPath, BOMPath string
-	Findings         []Finding
-	SchCount         int // bom-eligible symbols
-	BOMCount         int // designators in the external bom
-	Matched          int // designators both agree on completely
+	// Rows is every designator either side knows about, lined up.
+	Rows     []Row
+	Findings []Finding
+	SchCount int // bom-eligible symbols
+	BOMCount int // designators in the external bom
+	Matched  int // designators both agree on completely
 	// SkippedDNP counts do-not-populate symbols the BOM rightly leaves out. They
 	// are not findings, but without them the schematic and BOM totals look like
 	// they disagree for no reason.
@@ -118,19 +169,17 @@ func DiffSchematicBOM(sc *Schematic, items []Item) SchDiff {
 	d := SchDiff{SchPath: sc.Path, unread: sc.Skipped}
 
 	bySch := map[string]Symbol{}
+	offBOM := map[string]Symbol{}
 	for _, s := range sc.Symbols {
+		if s.Ref == "" {
+			continue
+		}
 		if s.Bommable() {
 			bySch[upRef(s.Ref)] = s
 			d.SchCount++
+			continue
 		}
-	}
-	// Symbols the designer took off the BOM, kept aside so their presence in the
-	// external BOM can still be reported.
-	offBOM := map[string]Symbol{}
-	for _, s := range sc.Symbols {
-		if !s.Bommable() && s.Ref != "" {
-			offBOM[upRef(s.Ref)] = s
-		}
+		offBOM[upRef(s.Ref)] = s
 	}
 
 	byBOM := map[string]Item{}
@@ -158,72 +207,137 @@ func DiffSchematicBOM(sc *Schematic, items []Item) SchDiff {
 		d.notCompared = append(d.notCompared, "footprint")
 	}
 
-	for ref, s := range bySch {
+	// Every designator either side knows about, so the report can show its work.
+	refs := map[string]bool{}
+	for r := range bySch {
+		refs[r] = true
+	}
+	for r := range offBOM {
+		refs[r] = true
+	}
+	for r := range byBOM {
+		refs[r] = true
+	}
+
+	for ref := range refs {
+		sym, inSch := bySch[ref]
+		off, isOff := offBOM[ref]
+		if !inSch && isOff {
+			sym = off
+		}
 		it, inBOM := byBOM[ref]
-		if !inBOM {
-			if s.DNP {
+
+		row := Row{
+			Ref: sym.Ref, InSch: inSch, InBOM: inBOM,
+			SchValue: sym.Value, SchFootprint: sym.Footprint,
+			BOMValue: it.Value, BOMFootprint: it.Footprint, BOMCode: it.LCSC,
+			DNP: sym.DNP, OffBOM: isOff,
+		}
+		if row.Ref == "" {
+			row.Ref = ref
+		}
+
+		switch {
+		case !inSch && !isOff:
+			row.Kinds = append(row.Kinds, DiffExtra)
+		case isOff && inBOM:
+			row.Kinds = append(row.Kinds, DiffExcluded)
+		case inSch && !inBOM:
+			if sym.DNP {
 				d.SkippedDNP++ // a dnp part absent from the bom is the point of dnp
-				continue
+			} else {
+				row.Kinds = append(row.Kinds, DiffMissing)
 			}
-			d.Findings = append(d.Findings, Finding{
-				Kind: DiffMissing, Ref: s.Ref,
-				Sch: describe(s), BOM: "—",
-			})
-			continue
+		case inSch && inBOM:
+			if sym.DNP {
+				row.Kinds = append(row.Kinds, DiffDNP)
+			}
+			if hasValues && !sameValue(sym.Value, it.Value) {
+				row.Kinds = append(row.Kinds, DiffValue)
+			}
+			if hasFootprints && !sameFootprint(sym.Footprint, it.Footprint) {
+				row.Kinds = append(row.Kinds, DiffFootprint)
+			}
+			if row.Agrees() {
+				d.Matched++
+			}
 		}
-		clean := true
-		if s.DNP {
-			d.Findings = append(d.Findings, Finding{
-				Kind: DiffDNP, Ref: s.Ref,
-				Sch: "dnp · " + describe(s), BOM: describeItem(it),
-			})
-			clean = false
-		}
-		if hasValues && !sameValue(s.Value, it.Value) {
-			d.Findings = append(d.Findings, Finding{
-				Kind: DiffValue, Ref: s.Ref, Sch: dash(s.Value), BOM: dash(it.Value),
-			})
-			clean = false
-		}
-		if hasFootprints && !sameFootprint(s.Footprint, it.Footprint) {
-			d.Findings = append(d.Findings, Finding{
-				Kind: DiffFootprint, Ref: s.Ref, Sch: dash(s.Footprint), BOM: dash(it.Footprint),
-			})
-			clean = false
-		}
-		if clean {
-			d.Matched++
-		}
+		d.Rows = append(d.Rows, row)
 	}
 
-	for ref, it := range byBOM {
-		if _, ok := bySch[ref]; ok {
-			continue
+	// Disagreements first, serious ones above the rest, then by designator.
+	sort.SliceStable(d.Rows, func(i, j int) bool {
+		a, b := d.Rows[i], d.Rows[j]
+		if a.Agrees() != b.Agrees() {
+			return !a.Agrees()
 		}
-		if s, off := offBOM[ref]; off {
-			d.Findings = append(d.Findings, Finding{
-				Kind: DiffExcluded, Ref: s.Ref,
-				Sch: "excluded from bom · " + describe(s), BOM: describeItem(it),
-			})
-			continue
-		}
-		d.Findings = append(d.Findings, Finding{
-			Kind: DiffExtra, Ref: ref, Sch: "—", BOM: describeItem(it),
-		})
-	}
-
-	// Severe first, then by designator, so the report opens on what matters.
-	sort.SliceStable(d.Findings, func(i, j int) bool {
-		a, b := d.Findings[i], d.Findings[j]
-		if a.Kind.Severe() != b.Kind.Severe() {
-			return a.Kind.Severe()
-		}
-		if a.Kind != b.Kind {
-			return a.Kind < b.Kind
+		if a.Severe() != b.Severe() {
+			return a.Severe()
 		}
 		return refLess(a.Ref, b.Ref)
 	})
+
+	for _, r := range d.Rows {
+		for _, k := range r.Kinds {
+			d.Findings = append(d.Findings, Finding{
+				Kind: k, Ref: r.Ref, Sch: r.schSide(k), BOM: r.bomSide(k),
+			})
+		}
+	}
 	return d
+}
+
+// schSide and bomSide describe just the field a finding is about, so a value
+// mismatch shows values rather than a whole line of unrelated detail.
+func (r Row) schSide(k DiffKind) string {
+	switch k {
+	case DiffValue:
+		return dash(r.SchValue)
+	case DiffFootprint:
+		return dash(r.SchFootprint)
+	case DiffExtra:
+		return "—"
+	case DiffDNP:
+		return "dnp · " + r.SchBoth()
+	case DiffExcluded:
+		return "off the bom · " + r.SchBoth()
+	}
+	return r.SchBoth()
+}
+
+func (r Row) bomSide(k DiffKind) string {
+	switch k {
+	case DiffValue:
+		return dash(r.BOMValue)
+	case DiffFootprint:
+		return dash(r.BOMFootprint)
+	case DiffMissing:
+		return "—"
+	}
+	return r.BOMBoth()
+}
+
+// SchBoth and BOMBoth are the two sides written the same way, for a side-by-side
+// listing.
+func (r Row) SchBoth() string {
+	if r.SchFootprint == "" {
+		return dash(r.SchValue)
+	}
+	return dash(r.SchValue) + " · " + r.SchFootprint
+}
+
+func (r Row) BOMBoth() string {
+	if !r.InBOM {
+		return "—"
+	}
+	out := dash(r.BOMValue)
+	if r.BOMFootprint != "" {
+		out += " · " + r.BOMFootprint
+	}
+	if r.BOMCode != "" {
+		out += " · " + r.BOMCode
+	}
+	return out
 }
 
 func upRef(s string) string { return strings.ToUpper(strings.TrimSpace(s)) }
@@ -233,24 +347,6 @@ func dash(s string) string {
 		return "—"
 	}
 	return s
-}
-
-func describe(s Symbol) string {
-	if s.Footprint == "" {
-		return dash(s.Value)
-	}
-	return dash(s.Value) + " · " + s.Footprint
-}
-
-func describeItem(it Item) string {
-	out := dash(it.Value)
-	if it.Footprint != "" {
-		out += " · " + it.Footprint
-	}
-	if it.LCSC != "" {
-		out += " · " + it.LCSC
-	}
-	return out
 }
 
 // sameValue compares electrically first and textually second, so 0.1uF matches

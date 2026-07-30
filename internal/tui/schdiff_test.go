@@ -21,9 +21,25 @@ func diffModel(t *testing.T, findings ...kicad.Finding) Model {
 	m.diff.ran = true
 	m.diff.res = kicad.SchDiff{
 		SchPath: "/tmp/x.kicad_sch", BOMPath: "/tmp/theirs.csv",
-		Findings: findings, SchCount: 10, BOMCount: 9, Matched: 4, SkippedDNP: 2,
+		Findings: findings, Rows: sampleRows(), SchCount: 10, BOMCount: 9,
+		Matched: 4, SkippedDNP: 2,
 	}
 	return m
+}
+
+// sampleRows is two designators that agree and three that don't, two of those
+// seriously.
+func sampleRows() []kicad.Row {
+	return []kicad.Row{
+		{Ref: "R2", InSch: true, SchValue: "1k", SchFootprint: "R_0603_1608Metric",
+			Kinds: []kicad.DiffKind{kicad.DiffMissing}},
+		{Ref: "C2", InSch: true, InBOM: true, SchValue: "1uF", BOMValue: "1uF", DNP: true,
+			Kinds: []kicad.DiffKind{kicad.DiffDNP}},
+		{Ref: "C1", InSch: true, InBOM: true, SchFootprint: "C_0603_1608Metric",
+			BOMFootprint: "C_0805_2012Metric", Kinds: []kicad.DiffKind{kicad.DiffFootprint}},
+		{Ref: "R1", InSch: true, InBOM: true, SchValue: "10k", BOMValue: "10k"},
+		{Ref: "R3", InSch: true, InBOM: true, SchValue: "2k", BOMValue: "2k"},
+	}
 }
 
 func sampleFindings() []kicad.Finding {
@@ -35,30 +51,51 @@ func sampleFindings() []kicad.Finding {
 	}
 }
 
-// s hides everything that wouldn't spoil an order, and says how many it hid rather
-// than looking like a clean bill of health.
-func TestDiffSevereOnlyFilterSaysWhatItHid(t *testing.T) {
-	m := diffModel(t, sampleFindings()...)
-	if got := len(m.diff.findings()); got != 4 {
-		t.Fatalf("%d findings unfiltered, want 4", got)
+// s narrows from every designator, to the differences, to the serious ones, and
+// back. The default has to be everything: a list of problems only is
+// indistinguishable from a comparison that never ran.
+func TestDiffFilterCyclesFromEverything(t *testing.T) {
+	m := diffModel(t)
+	if m.diff.show != showAll {
+		t.Fatal("the tab should open showing every designator")
 	}
+	if got := len(m.diff.rows()); got != 5 {
+		t.Fatalf("%d rows unfiltered, want all 5", got)
+	}
+
 	mm, _ := m.updateDiffKey(key("s"))
 	m = mm.(Model)
-	if got := len(m.diff.findings()); got != 2 {
-		t.Fatalf("%d findings with the filter on, want the 2 severe", got)
+	if got := len(m.diff.rows()); got != 3 {
+		t.Fatalf("%d rows on the differences, want 3", got)
 	}
-	for _, f := range m.diff.findings() {
-		if !f.Kind.Severe() {
-			t.Errorf("%v survived the severe-only filter", f.Kind)
+	for _, r := range m.diff.rows() {
+		if r.Agrees() {
+			t.Errorf("%s agrees but survived the differences filter", r.Ref)
 		}
 	}
 
-	// with nothing severe at all, the hidden count has to be on screen
-	only := diffModel(t, kicad.Finding{Kind: kicad.DiffFootprint, Ref: "C1", Sch: "a", BOM: "b"})
-	mm, _ = only.updateDiffKey(key("s"))
-	out := stripANSI(mm.(Model).viewDiff(only.contentW(), only.contentH()))
-	if !strings.Contains(out, "1 lesser findings hidden") {
-		t.Errorf("the filter hid a finding without saying so:\n%s", out)
+	mm, _ = m.updateDiffKey(key("s"))
+	m = mm.(Model)
+	for _, r := range m.diff.rows() {
+		if !r.Severe() {
+			t.Errorf("%s is not severe but survived", r.Ref)
+		}
+	}
+
+	mm, _ = m.updateDiffKey(key("s"))
+	if got := mm.(Model).diff.show; got != showAll {
+		t.Errorf("s should cycle back to everything, got %v", got)
+	}
+}
+
+// A filter that empties the list says so and names the way out.
+func TestDiffEmptyFilterSaysHowManyItHid(t *testing.T) {
+	m := diffModel(t)
+	m.diff.show = showSerious
+	m.diff.res.Rows = []kicad.Row{{Ref: "R1", InSch: true, InBOM: true}}
+	out := stripANSI(m.viewDiff(m.contentW(), m.contentH()))
+	if !strings.Contains(out, "1 designators hidden") {
+		t.Errorf("the filter hid a row without saying so:\n%s", out)
 	}
 }
 
