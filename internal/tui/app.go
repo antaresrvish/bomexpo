@@ -371,6 +371,9 @@ func (m Model) titleBody() (title, body string) {
 	case modeNets:
 		return "Nets" + projSuffix(m.name), m.viewNets(cw, ch)
 	case modeCheck:
+		if m.check.confirm.open {
+			return "Export the order", m.viewConfirm(cw, ch)
+		}
 		return "Export the order", m.viewCheck(cw, ch)
 	case modeDiff:
 		return "Verify the design against a bom", m.viewDiff(cw, ch)
@@ -631,6 +634,10 @@ func (m Model) helpLine(budget int) string {
 		}
 		hints = [][2]string{{"↑↓", "nets"}, {"enter", "filter by it"}, {"/", "narrow"}, {"esc", "back"}}
 	case modeCheck:
+		if m.check.confirm.open {
+			hints = [][2]string{{"←→", "answer"}, {"enter", "pick it"}, {"y", "export"}, {"n", "go back"}}
+			break
+		}
 		switch m.check.pane {
 		case paneOut:
 			hints = [][2]string{{"type", "output path"}, {"enter", "export"}, {"tab", "issues"},

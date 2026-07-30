@@ -31,9 +31,10 @@ type checkState struct {
 	cur int
 	// target is how many boards you actually plan to order, 0 until you say. The
 	// pricing table marks it, since that is the number you're deciding on.
-	target int
-	qty    textfield
-	pane   checkPane
+	target  int
+	qty     textfield
+	confirm confirmState
+	pane    checkPane
 }
 
 func newCheckState() checkState {
@@ -131,6 +132,10 @@ func (m Model) mouseCheck(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	if m.check.confirm.open {
+		return m.updateConfirmKey(msg)
+	}
+
 	// The board count owns the keyboard while it's being typed, and only takes
 	// digits — anything else here would be a typo, not a quantity.
 	if m.check.qty.Focused() {
@@ -208,9 +213,9 @@ func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if is, ok := m.selectedIssue(); ok && m.check.pane == paneIssues {
 			return m.jumpToComponent(is.ref)
 		}
-		return m.startExport()
+		return m.requestExport()
 	case "x":
-		return m.startExport()
+		return m.requestExport()
 
 	// up and down belong to whichever pane has the keyboard
 	case "up", "k":

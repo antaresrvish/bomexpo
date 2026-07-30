@@ -59,6 +59,10 @@ package and type. As you move through the table the side panel shows the selecte
 stock, price and specs next to its footprint. Once everything is assigned and in stock, Export
 writes the zip you upload.
 
+Exporting a board with open issues asks first, and the question lists them — a part with
+nothing assigned will simply be missing from the BOM, and that is worth reading before you
+agree to it. A clean board exports without the interruption.
+
 In Export, the volume pricing table is computed rather than fixed: it lists the board counts
 where the price per board actually changes, and says which part changes there — a part used
 four times per board crosses its 100-piece break at 25 boards, not 100. `q` sets the number
