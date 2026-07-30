@@ -301,21 +301,56 @@ func wideRow() kicad.Row {
 	}
 }
 
-// The cells hold enough to read: the natural row is wider than a normal terminal,
-// which is why the table scrolls sideways instead of squeezing every cell down to
-// an ellipsis.
+// The cells hold enough to read: on a narrow terminal the row is wider than the
+// viewport and scrolls, rather than squeezing every cell down to an ellipsis.
 func TestDiffRowIsWideEnoughToRead(t *testing.T) {
-	c := layoutDiffCols()
-	if c.side < 34 {
+	c := layoutDiffCols(128)
+	if c.side < sideMin {
 		t.Errorf("side column is %d wide, too narrow for a value, footprint and code", c.side)
 	}
-	full := c.fullWidth()
-	if full <= 128 {
-		t.Errorf("natural width is %d — nothing would scroll, so the cells are cramped", full)
+	if full := c.fullWidth(); full <= 128 {
+		t.Errorf("width at 128 is %d — nothing would scroll, so the cells are cramped", full)
 	}
 	// a whole cell fits without being cut
 	if got := lipgloss.Width(stripANSI(pad("22uF · C_0603_1608Metric · C2762594", c.side))); got != c.side {
 		t.Errorf("a full cell renders %d columns, want %d", got, c.side)
+	}
+}
+
+// A wide terminal must not leave the table stranded at its minimum width with dead
+// space to the right.
+func TestDiffColumnsFillTheWidth(t *testing.T) {
+	narrow := layoutDiffCols(120)
+	wide := layoutDiffCols(220)
+	if wide.side <= narrow.side {
+		t.Errorf("side column stayed at %d on a 220-column table", wide.side)
+	}
+	if wide.what <= narrow.what {
+		t.Errorf("the verdict column stayed at %d, so it keeps truncating", wide.what)
+	}
+	// the verdict stops growing once it can hold its longest wording
+	if huge := layoutDiffCols(400); huge.what > whatMax {
+		t.Errorf("verdict grew to %d, past the %d it ever needs", huge.what, whatMax)
+	}
+	// Once there is room for the minimum, the row reaches the right edge give or
+	// take the rounding. Below that it overflows on purpose and scrolls.
+	minFull := layoutDiffCols(0).fullWidth()
+	for _, w := range []int{minFull, 180, 220, 300} {
+		full := layoutDiffCols(w).fullWidth()
+		if full > w {
+			t.Errorf("at %d the row is %d columns — wider than the space", w, full)
+		}
+		if w-full > 3 {
+			t.Errorf("at %d the row is only %d columns, leaving %d dead", w, full, w-full)
+		}
+	}
+	if full := layoutDiffCols(120).fullWidth(); full <= 120 {
+		t.Errorf("at 120 the row is %d — it should overflow and scroll", full)
+	}
+	// the longest verdict fits once there is room for it
+	long := "schematic part code + schematic footprint"
+	if c := layoutDiffCols(220); lipgloss.Width(trunc(long, c.what)) < lipgloss.Width(long) {
+		t.Errorf("the longest verdict still truncates at what=%d", c.what)
 	}
 }
 
@@ -380,7 +415,7 @@ func TestDiffCursorRowIsOneUnbrokenHighlight(t *testing.T) {
 	m.diff.res.Rows = []kicad.Row{wideRow()}
 	m.diff.cursor = 0
 
-	line := m.diffRowView(m.diff.res.Rows[0], layoutDiffCols(), sepStyle.Render(" │ "), true)
+	line := m.diffRowView(m.diff.res.Rows[0], layoutDiffCols(128), sepStyle.Render(" │ "), true)
 	if n := strings.Count(line, "\x1b["); n != 2 {
 		t.Errorf("the cursor row has %d escape sequences, want 2 — one open, one close:\n%q", n, line)
 	}

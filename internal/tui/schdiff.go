@@ -18,13 +18,37 @@ import (
 
 const diffDataTop = 8 // tab, border, title, path, summary, counts, colhead, rule
 
-// diffCols are the natural widths. They add up to more than most terminals, which
-// is the point: the cells hold a value, a footprint and a part code, and squeezing
-// three of those into a third of the screen each turns every one into an ellipsis.
-// The table scrolls sideways instead, the way Components does.
+// diffCols are the column widths. The three side columns hold a value, a footprint
+// and a part code each, so they start at a width that fits one and flex to fill
+// whatever the terminal has spare. On a narrow terminal they stay at the minimum
+// and the table scrolls sideways, the way Components does.
 type diffCols struct{ ref, what, side int }
 
-func layoutDiffCols() diffCols { return diffCols{ref: 9, what: 22, side: 36} }
+const (
+	// sideMin is the narrowest a side column gets: enough for
+	// "22uF · C_0603_1608Metric · C2762594" to read before the ellipsis.
+	sideMin = 36
+	// whatMax fits the verdicts that actually turn up — "schematic part code +
+	// schematic footprint" is 41 columns. A row disagreeing three ways still
+	// truncates, which is fine: the cells beside it say what happened.
+	whatMax = 44
+)
+
+func layoutDiffCols(tableW int) diffCols {
+	c := diffCols{ref: 9, what: 22, side: sideMin}
+	spare := tableW - c.fullWidth()
+	if spare <= 0 {
+		return c
+	}
+	// The verdict gets room first, up to its longest wording, then the cells split
+	// what's left three ways.
+	if grow := min(spare/3, whatMax-c.what); grow > 0 {
+		c.what += grow
+		spare -= grow
+	}
+	c.side += spare / 3
+	return c
+}
 
 // fullWidth is the row's natural width: the marker, every column, and a 3-column
 // separator between the five cells.
@@ -35,7 +59,8 @@ func (c diffCols) fullWidth() int { return 2 + c.ref + c.what + 3*c.side + 4*3 }
 func (m Model) diffTableW() int { return m.contentW() - 1 }
 
 func (m Model) diffMaxHoff() int {
-	if over := layoutDiffCols().fullWidth() - m.diffTableW(); over > 0 {
+	w := m.diffTableW()
+	if over := layoutDiffCols(w).fullWidth() - w; over > 0 {
 		return over
 	}
 	return 0
@@ -415,8 +440,9 @@ func (m Model) viewDiff(w, h int) string {
 // bottom — the same treatment the Components table gets.
 func (m Model) diffTable(h int) (head, body []string) {
 	s := m.diff
-	c := layoutDiffCols()
-	full, tableW := c.fullWidth(), m.diffTableW()
+	tableW := m.diffTableW()
+	c := layoutDiffCols(tableW)
+	full := c.fullWidth()
 	hoff := clampInt(s.hoff, 0, max(0, full-tableW))
 	crop := func(line string) string {
 		line = ansi.Cut(line, hoff, hoff+tableW)
