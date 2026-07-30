@@ -242,3 +242,22 @@ func TestPricingTargetCellKeepsItsGap(t *testing.T) {
 		t.Errorf("the styled cell runs into the label: %q", upto)
 	}
 }
+
+// The table is part costs and must say so. Calling it "order cost" led to it being
+// compared against an assembler's quote and read as 20% wrong, when the difference
+// was the bare board, the stencil and the setup fees.
+func TestPricingSaysItIsPartsOnly(t *testing.T) {
+	m := priceModel(t)
+	mm, _ := m.gotoTab(modeCheck)
+	m = mm.(Model)
+	out := stripANSI(m.viewCheck(m.contentW(), m.contentH()))
+
+	if strings.Contains(out, "ORDER COST") {
+		t.Error("the column still claims to be the order cost")
+	}
+	for _, want := range []string{"Parts cost", "PARTS", "parts only", "bare board", "smt setup"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the page never says %q:\n%s", want, out)
+		}
+	}
+}

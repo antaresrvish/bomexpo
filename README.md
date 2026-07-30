@@ -63,11 +63,15 @@ Exporting a board with open issues asks first, and the question lists them — a
 nothing assigned will simply be missing from the BOM, and that is worth reading before you
 agree to it. A clean board exports without the interruption.
 
-In Export, the volume pricing table is computed rather than fixed: it lists the board counts
+In Export, the parts-cost table is computed rather than fixed: it lists the board counts
 where the price per board actually changes, and says which part changes there — a part used
 four times per board crosses its 100-piece break at 25 boards, not 100. `q` sets the number
 you're really ordering and the table marks it. `enter` on an issue opens that part in
 Components.
+
+Those are **part costs only**. The bare board, the stencil, SMT setup, extended-part fees,
+panel rails and shipping are the assembler's to quote, so their invoice will be higher —
+on a recent 350-board run, $4.94 a board in parts against $5.90 quoted.
 
 Common keys: `enter` assign · `a` auto-assign · `o` cycle rotation override · `x` exclude
 · `w` write LCSC codes back to the pcb · `t`/`b`/`i` open a 3D render · `r` refresh stock

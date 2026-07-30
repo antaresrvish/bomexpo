@@ -472,14 +472,17 @@ func (m Model) viewCheck(w, h int) string {
 	lines = append(lines, m.preflightAndManifest(leftW)...)
 
 	rows := m.pricingRows(m.check.target, 7)
-	head := dimStyle.Render("  where the price per board actually changes")
+	head := dimStyle.Render("  where the parts price per board changes")
 	if m.check.target > 0 {
 		head = dimStyle.Render("  ordering ") + accentStyle.Render(fmt.Sprintf("%d", m.check.target)) +
 			dimStyle.Render(" boards · q changes it")
 	}
+	// These are part costs and nothing else. Calling the column "order cost" invited
+	// people to compare it with an assembler's quote and conclude the tool was 20%
+	// out, when the difference was the board, the stencil and the setup fees.
 	pricing := []string{
-		accentStyle.Render("Volume pricing") + head,
-		colHeadStyle.Render(pad("  BOARDS", 9) + pad("ORDER COST", 13) + pad("PER BOARD", 12) + "WHAT CHANGES"),
+		accentStyle.Render("Parts cost") + head,
+		colHeadStyle.Render(pad("  BOARDS", 9) + pad("PARTS", 13) + pad("PER BOARD", 12) + "WHAT CHANGES"),
 	}
 	for _, r := range rows {
 		mark := " "
@@ -506,6 +509,12 @@ func (m Model) viewCheck(w, h int) string {
 	if n, extra := m.moqImpact(max(m.check.target, 1)); n > 0 {
 		pricing = append(pricing, dimStyle.Render(fmt.Sprintf(
 			"  %d parts over-bought to reach a supplier minimum — +$%.2f", n, extra)))
+	}
+	if len(rows) > 0 {
+		pricing = append(pricing, warnStyle.Render("  parts only")+dimStyle.Render(
+			" — the bare board, stencil, smt setup, extended-part fees, panel rails and"))
+		pricing = append(pricing, dimStyle.Render(
+			"  shipping are the assembler's to quote, so expect their number to be higher"))
 	}
 
 	lines = append(lines, "")
