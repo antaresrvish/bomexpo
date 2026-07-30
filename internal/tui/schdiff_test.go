@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -130,5 +132,115 @@ func TestDiffWithNoDesignExplainsItself(t *testing.T) {
 	msg, ok := cmd().(diffDoneMsg)
 	if !ok || msg.err == nil {
 		t.Errorf("want an error message back, got %#v", msg)
+	}
+}
+
+// completeDir builds a directory to complete against.
+func completeDir(t *testing.T, names ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, n := range names {
+		p := filepath.Join(dir, n)
+		if strings.HasSuffix(n, "/") {
+			if err := os.MkdirAll(strings.TrimSuffix(p, "/"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := os.WriteFile(p, []byte("Designator\nR1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// diffField is the Diff tab with its path field focused and preloaded.
+func diffField(t *testing.T, value string) Model {
+	t.Helper()
+	m := diffModel(t)
+	m.diff.ran = false
+	m.diff.field.Focus()
+	m.diff.field.SetValue(value)
+	return m
+}
+
+// The field only wants a csv, so completion must not land on files it would reject.
+func TestDiffCompletionOffersOnlyCsvAndFolders(t *testing.T) {
+	dir := completeDir(t, "board.kicad_pcb", "bom.csv", "sub/")
+	_, names := diffCandidates(dir + "/")
+	if strings.Join(names, ",") != "sub/,bom.csv" {
+		t.Errorf("candidates = %v, want the folder and the csv only", names)
+	}
+
+	// a lone csv completes all the way
+	m := diffField(t, filepath.Join(dir, "b"))
+	mm, _ := m.updateDiffKey(key("tab"))
+	if got := mm.(Model).diff.field.Value(); got != filepath.Join(dir, "bom.csv") {
+		t.Errorf("tab gave %q, want the csv completed", got)
+	}
+}
+
+// Tab extends as far as the shared prefix allows and no further.
+func TestDiffCompletionStopsAtTheSharedPrefix(t *testing.T) {
+	dir := completeDir(t, "bom-old.csv", "bom-new.csv")
+	m := diffField(t, filepath.Join(dir, "b"))
+	mm, _ := m.updateDiffKey(key("tab"))
+	m = mm.(Model)
+	if got := m.diff.field.Value(); got != filepath.Join(dir, "bom-") {
+		t.Errorf("tab gave %q, want it to stop at bom-", got)
+	}
+	// pressing again can't add anything, and must not throw the field away
+	mm, _ = m.updateDiffKey(key("tab"))
+	if !mm.(Model).diff.field.Focused() {
+		t.Error("an ambiguous tab lost the field — a shell would list and wait")
+	}
+}
+
+// With nothing left to match, tab behaves like tab everywhere else and hands the
+// page back.
+func TestDiffCompletionWithNoCandidatesLeavesTheField(t *testing.T) {
+	dir := completeDir(t, "board.kicad_pcb")
+	for _, in := range []string{filepath.Join(dir, "zzz"), dir + "/"} {
+		m := diffField(t, in)
+		mm, _ := m.updateDiffKey(key("tab"))
+		if mm.(Model).diff.field.Focused() {
+			t.Errorf("%q: nothing to complete, so tab should hand the page back", in)
+		}
+	}
+}
+
+// Completing a path invalidates the report, which belonged to the old one.
+func TestDiffCompletionDropsTheOldReport(t *testing.T) {
+	dir := completeDir(t, "bom.csv")
+	m := diffField(t, filepath.Join(dir, "b"))
+	m.diff.ran = true
+	mm, _ := m.updateDiffKey(key("tab"))
+	if mm.(Model).diff.ran {
+		t.Error("the report should not survive a path change")
+	}
+}
+
+// The candidates are on screen, so tab isn't a guess.
+func TestDiffShowsCompletionCandidates(t *testing.T) {
+	dir := completeDir(t, "bom.csv", "positions.csv")
+	m := diffField(t, dir+"/")
+	out := stripANSI(m.viewDiff(m.contentW(), m.contentH()))
+	if !strings.Contains(out, "tab completes") {
+		t.Errorf("no hint about tab:\n%s", out)
+	}
+	for _, want := range []string{"bom.csv", "positions.csv"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%s is not offered on screen:\n%s", want, out)
+		}
+	}
+}
+
+// Load's completion must keep taking every file type — the csv filter is this
+// field's, not everyone's.
+func TestLoadCompletionStillTakesBoards(t *testing.T) {
+	dir := completeDir(t, "board.kicad_pcb")
+	got, ok := completePath(filepath.Join(dir, "bo"))
+	if !ok || got != filepath.Join(dir, "board.kicad_pcb") {
+		t.Errorf("completePath gave %q (%v), want the board", got, ok)
 	}
 }

@@ -126,6 +126,17 @@ func (m Model) updateDiffKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.diff.field.Blur()
 			return m, nil
 		case "tab", "shift+tab":
+			if next, ok := completeCSV(m.diff.field.Value()); ok {
+				m.diff.field.SetValue(next)
+				m.diff.ran = false
+				return m, nil
+			}
+			// Several candidates with no shared prefix left to add is not "done" —
+			// a shell would list them and keep the line. Only an empty directory
+			// hands the page back.
+			if _, names := diffCandidates(m.diff.field.Value()); len(names) > 0 {
+				return m, nil
+			}
 			m.diff.field.Blur()
 			return m, nil
 		case "enter":
@@ -189,6 +200,30 @@ func (m *Model) clampDiff() {
 	m.diff.top = clampInt(m.diff.top, 0, max(0, n-1))
 }
 
+// completeCSV completes the path, offering only directories and the csv files this
+// field can actually use — a completion that lands on a .kicad_pcb would only have
+// to be deleted again.
+func completeCSV(input string) (string, bool) {
+	return complete(input, func(e fsEntry) bool {
+		return strings.EqualFold(filepath.Ext(e.name), ".csv")
+	})
+}
+
+// diffCandidates is what a completion would choose between, for the hint line.
+func diffCandidates(input string) (dir string, names []string) {
+	d, _, all := listDir(input, 60)
+	for _, e := range all {
+		if e.isDir {
+			names = append(names, e.name+"/")
+			continue
+		}
+		if strings.EqualFold(filepath.Ext(e.name), ".csv") {
+			names = append(names, e.name)
+		}
+	}
+	return d, names
+}
+
 // diffKindStyle colours a finding by whether it would spoil an order.
 func diffKindStyle(k kicad.DiffKind) lipgloss.Style {
 	switch k {
@@ -220,6 +255,8 @@ func (m Model) viewDiff(w, h int) string {
 
 	var summary string
 	switch {
+	case s.field.Focused() && !s.load:
+		summary = diffCandidateLine(s.field.Value(), w)
 	case s.load:
 		summary = m.spin.View() + " reading the schematic…"
 	case s.err != "":
@@ -292,6 +329,28 @@ func (m Model) viewDiff(w, h int) string {
 	return strings.Join(lines, "\n") + "\n" + m.diffFooter(w)
 }
 
+// diffCandidateLine shows what tab would complete to, so the key isn't a guess.
+func diffCandidateLine(input string, w int) string {
+	dir, names := diffCandidates(input)
+	if len(names) == 0 {
+		return dimStyle.Render("no csv in " + dir + " — tab completes folders too")
+	}
+	head := dimStyle.Render("tab completes  ")
+	var shown []string
+	for _, n := range names {
+		if lipgloss.Width(head)+lipgloss.Width(strings.Join(shown, "  "))+lipgloss.Width(n)+12 > w {
+			shown = append(shown, dimStyle.Render(fmt.Sprintf("+%d more", len(names)-len(shown))))
+			break
+		}
+		st := okStyle
+		if strings.HasSuffix(n, "/") {
+			st = accentStyle
+		}
+		shown = append(shown, st.Render(n))
+	}
+	return head + strings.Join(shown, dimStyle.Render("  "))
+}
+
 // diffCounts is the tally by kind, plus the skipped DNP count so the totals add up
 // on screen.
 func (m Model) diffCounts(w int) string {
@@ -322,7 +381,7 @@ func (m Model) diffCounts(w int) string {
 
 func (m Model) diffFooter(w int) string {
 	if m.diff.field.Focused() {
-		return dimStyle.Render("  enter compare · tab leaves the path · esc back")
+		return dimStyle.Render("  tab complete · enter compare · esc leaves the path")
 	}
 	left := dimStyle.Render("  tab edit the path · enter compare · s ")
 	if m.diff.severeOnly {
