@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"bomexpo/internal/kicad"
 )
@@ -16,6 +17,29 @@ import (
 // typed in, and the report leads with what would spoil an order.
 
 const diffDataTop = 8 // tab, border, title, path, summary, counts, colhead, rule
+
+// diffCols are the natural widths. They add up to more than most terminals, which
+// is the point: the cells hold a value, a footprint and a part code, and squeezing
+// three of those into a third of the screen each turns every one into an ellipsis.
+// The table scrolls sideways instead, the way Components does.
+type diffCols struct{ ref, what, side int }
+
+func layoutDiffCols() diffCols { return diffCols{ref: 9, what: 22, side: 36} }
+
+// fullWidth is the row's natural width: the marker, every column, and a 3-column
+// separator between the five cells.
+func (c diffCols) fullWidth() int { return 2 + c.ref + c.what + 3*c.side + 4*3 }
+
+// diffTableW is the width left for the table once the vertical scrollbar has its
+// column.
+func (m Model) diffTableW() int { return m.contentW() - 1 }
+
+func (m Model) diffMaxHoff() int {
+	if over := layoutDiffCols().fullWidth() - m.diffTableW(); over > 0 {
+		return over
+	}
+	return 0
+}
 
 type diffDoneMsg struct {
 	res kicad.SchDiff
@@ -30,6 +54,7 @@ type diffState struct {
 	err    string
 	cursor int
 	top    int
+	hoff   int // horizontal scroll, since the row is wider than most terminals
 	// show is how much of the comparison is on screen. It starts on everything:
 	// a report that lists only problems looks identical to one that ran nothing.
 	show diffShow
@@ -203,6 +228,10 @@ func (m Model) updateDiffKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		m.diff.show = (m.diff.show + 1) % 3
 		m.diff.cursor, m.diff.top = 0, 0
+	case "left", "h":
+		m.diff.hoff = clampInt(m.diff.hoff-8, 0, m.diffMaxHoff())
+	case "right", "l":
+		m.diff.hoff = clampInt(m.diff.hoff+8, 0, m.diffMaxHoff())
 	case "up", "k":
 		m.diff.cursor = max(0, m.diff.cursor-1)
 	case "down", "j":
@@ -341,60 +370,112 @@ func (m Model) viewDiff(w, h int) string {
 		lines = append(lines, "")
 	}
 
-	// mark(2) + ref + what + three side columns + four 3-wide separators
-	const refW, kindW = 8, 24
-	sideW := (w - 2 - refW - kindW - 4*3) / 3
-	if sideW < 10 {
-		sideW = 10
+	// The header lines are prose, so a narrow terminal has to cut them rather than
+	// letting one push the panel border out.
+	for i := range lines {
+		lines[i] = padRender(lines[i], w)
 	}
-	lines = append(lines,
-		colHeadStyle.Render(padRender(strings.Join([]string{
-			pad("REF", refW), pad("WHAT", kindW),
-			pad("SCHEMATIC", sideW), pad("PCB", sideW), pad("BOM", sideW),
-		}, " | "), w)),
-		borderStyle.Render(strings.Repeat("─", w)))
-
-	rows := s.rows()
-	vis := m.diffRows()
-	for i := s.top; i < min(len(rows), s.top+vis); i++ {
-		r := rows[i]
-		// The two sides carry the same fields in the same order, so a difference
-		// jumps out by sitting directly across from its counterpart.
-		plain := []string{
-			pad(trunc(r.Ref, refW), refW),
-			pad(trunc(r.What(), kindW), kindW),
-			pad(trunc(r.Cell(kicad.SideSch).Text(), sideW), sideW),
-			pad(trunc(r.Cell(kicad.SidePCB).Text(), sideW), sideW),
-			pad(trunc(r.Cell(kicad.SideBOM).Text(), sideW), sideW),
-		}
-		if i == s.cursor {
-			lines = append(lines, selRowStyle.Render(padRender(diffMark(r)+strings.Join(plain, "   "), w)))
-			continue
-		}
-		ref := accentStyle
-		if r.Agrees() {
-			ref = subtleStyle
-		}
-		lines = append(lines, padRender(diffMark(r)+strings.Join([]string{
-			ref.Render(plain[0]),
-			diffRowStyle(r).Render(plain[1]),
-			diffCell(r, kicad.SideSch, plain[2]),
-			diffCell(r, kicad.SidePCB, plain[3]),
-			diffCell(r, kicad.SideBOM, plain[4]),
-		}, sepStyle.Render(" | ")), w))
-	}
-	if s.ran && len(rows) == 0 {
-		hidden := len(s.res.Rows)
-		lines = append(lines, dimStyle.Render(fmt.Sprintf(
-			"  nothing at this filter — %d designators hidden, press s for %s",
-			hidden, (s.show+1)%3)))
-	}
-
-	for len(lines) < h-1 {
-		lines = append(lines, "")
-	}
+	head, body := m.diffTable(h - len(lines) - 1)
+	lines = append(lines, head...)
+	lines = append(lines, body...)
 	lines = lines[:h-1]
 	return strings.Join(lines, "\n") + "\n" + m.diffFooter(w)
+}
+
+// diffTable draws the header and rows at their natural width and crops them to the
+// viewport, with a vertical scrollbar down the side and a horizontal one along the
+// bottom — the same treatment the Components table gets.
+func (m Model) diffTable(h int) (head, body []string) {
+	s := m.diff
+	c := layoutDiffCols()
+	full, tableW := c.fullWidth(), m.diffTableW()
+	hoff := clampInt(s.hoff, 0, max(0, full-tableW))
+	crop := func(line string) string {
+		line = ansi.Cut(line, hoff, hoff+tableW)
+		if p := tableW - lipgloss.Width(line); p > 0 {
+			line += spaces(p)
+		}
+		return line
+	}
+	sep := sepStyle.Render(" │ ")
+
+	head = []string{
+		crop(colHeadStyle.Render(padRender(spaces(2)+strings.Join([]string{
+			pad("REF", c.ref), pad("WHAT", c.what),
+			pad("SCHEMATIC", c.side), pad("PCB", c.side), pad("BOM", c.side),
+		}, " │ "), full))) + " ",
+		crop(borderStyle.Render(strings.Repeat("─", full))) + " ",
+	}
+
+	rows := s.rows()
+	// Every side writes the same fields in the same order, so a difference shows up
+	// by sitting directly across from its counterpart.
+	vis := h - 2 - 1 // the two header lines and the horizontal bar
+	if vis < 1 {
+		vis = 1
+	}
+	vbar := m.diffVScroll(len(rows), vis)
+	for i := 0; i < vis; i++ {
+		row := i + s.top
+		if row >= len(rows) {
+			body = append(body, spaces(tableW)+vbar[i])
+			continue
+		}
+		body = append(body, crop(m.diffRowView(rows[row], c, sep, row == s.cursor))+vbar[i])
+	}
+	if s.ran && len(rows) == 0 && len(body) > 0 {
+		body[0] = padRender(dimStyle.Render(fmt.Sprintf(
+			"  nothing at this filter — %d designators hidden, press s for %s",
+			len(s.res.Rows), (s.show+1)%3)), tableW) + vbar[0]
+	}
+	body = append(body, hScrollRow(tableW, full, tableW, hoff)+" ")
+	return head, body
+}
+
+// diffRowView renders one row at its natural width.
+func (m Model) diffRowView(r kicad.Row, c diffCols, sep string, cursor bool) string {
+	plain := []string{
+		pad(trunc(r.Ref, c.ref), c.ref),
+		pad(trunc(r.What(), c.what), c.what),
+		pad(trunc(r.Cell(kicad.SideSch).Text(), c.side), c.side),
+		pad(trunc(r.Cell(kicad.SidePCB).Text(), c.side), c.side),
+		pad(trunc(r.Cell(kicad.SideBOM).Text(), c.side), c.side),
+	}
+	if cursor {
+		return selRowStyle.Render(padRender(diffMark(r)+strings.Join(plain, "   "), c.fullWidth()))
+	}
+	ref := accentStyle
+	if r.Agrees() {
+		ref = subtleStyle
+	}
+	return padRender(diffMark(r)+strings.Join([]string{
+		ref.Render(plain[0]),
+		diffRowStyle(r).Render(plain[1]),
+		diffCell(r, kicad.SideSch, plain[2]),
+		diffCell(r, kicad.SidePCB, plain[3]),
+		diffCell(r, kicad.SideBOM, plain[4]),
+	}, sep), c.fullWidth())
+}
+
+// diffVScroll is the thumb column beside the rows, one glyph per visible line.
+func (m Model) diffVScroll(total, vis int) []string {
+	out := make([]string, vis)
+	if total <= vis {
+		for i := range out {
+			out[i] = " "
+		}
+		return out
+	}
+	thumb := max(1, vis*vis/total)
+	pos := m.diff.top * (vis - thumb) / max(1, total-vis)
+	for i := range out {
+		if i >= pos && i < pos+thumb {
+			out[i] = accentStyle.Render("█")
+		} else {
+			out[i] = borderStyle.Render("│")
+		}
+	}
+	return out
 }
 
 // diffCell colours one side's cell: the schematic reads as the reference, and only
@@ -487,7 +568,7 @@ func (m Model) diffFooter(w int) string {
 	}
 	left := dimStyle.Render("  tab path · enter compare · s showing ") +
 		accentStyle.Render(m.diff.show.String())
-	right := dimStyle.Render(fmt.Sprintf("%d of %d · ↑↓ move · esc back",
+	right := dimStyle.Render(fmt.Sprintf("%d of %d · ↑↓ rows · ←→ columns · esc back",
 		len(m.diff.rows()), len(m.diff.res.Rows)))
 	// The counts matter more than the key list when it's tight.
 	if lipgloss.Width(left)+lipgloss.Width(right)+1 > w {

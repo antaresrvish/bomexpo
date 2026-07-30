@@ -287,3 +287,88 @@ func TestLoadCompletionStillTakesBoards(t *testing.T) {
 		t.Errorf("completePath gave %q (%v), want the board", got, ok)
 	}
 }
+
+// wideRow is a designator whose three cells each carry a value, a footprint and a
+// part code — the case that made the old equal-thirds layout useless.
+func wideRow() kicad.Row {
+	cell := func(code string) kicad.Cell {
+		return kicad.Cell{Present: true, Value: "22uF", Footprint: "C_0603_1608Metric", Code: code}
+	}
+	return kicad.Row{
+		Ref: "C14", Sch: cell("C141382"), PCB: cell("C1591"), BOM: cell("C2762594"),
+		Kinds: []kicad.DiffKind{kicad.DiffCode, kicad.DiffCode},
+		Sides: []kicad.Side{kicad.SidePCB, kicad.SideBOM},
+	}
+}
+
+// The cells hold enough to read: the natural row is wider than a normal terminal,
+// which is why the table scrolls sideways instead of squeezing every cell down to
+// an ellipsis.
+func TestDiffRowIsWideEnoughToRead(t *testing.T) {
+	c := layoutDiffCols()
+	if c.side < 34 {
+		t.Errorf("side column is %d wide, too narrow for a value, footprint and code", c.side)
+	}
+	full := c.fullWidth()
+	if full <= 128 {
+		t.Errorf("natural width is %d — nothing would scroll, so the cells are cramped", full)
+	}
+	// a whole cell fits without being cut
+	if got := lipgloss.Width(stripANSI(pad("22uF · C_0603_1608Metric · C2762594", c.side))); got != c.side {
+		t.Errorf("a full cell renders %d columns, want %d", got, c.side)
+	}
+}
+
+// Scrolling right reveals the far column, and both ends clamp.
+func TestDiffScrollsSidewaysAndClamps(t *testing.T) {
+	m := diffModel(t)
+	m.diff.res.Rows = []kicad.Row{wideRow()}
+	m.w, m.h = 120, 24
+
+	atLeft := stripANSI(m.viewDiff(m.contentW(), m.contentH()))
+	if strings.Contains(atLeft, "C2762594") {
+		t.Skip("this terminal is wide enough to show everything")
+	}
+
+	for i := 0; i < 10; i++ {
+		mm, _ := m.updateDiffKey(key("right"))
+		m = mm.(Model)
+	}
+	if got := m.diff.hoff; got != m.diffMaxHoff() {
+		t.Errorf("hoff = %d after scrolling to the end, want %d", got, m.diffMaxHoff())
+	}
+	if out := stripANSI(m.viewDiff(m.contentW(), m.contentH())); !strings.Contains(out, "C2762594") {
+		t.Errorf("the far column never came into view:\n%s", out)
+	}
+
+	for i := 0; i < 20; i++ {
+		mm, _ := m.updateDiffKey(key("left"))
+		m = mm.(Model)
+	}
+	if m.diff.hoff != 0 {
+		t.Errorf("hoff = %d back at the left, want 0", m.diff.hoff)
+	}
+}
+
+// A narrow terminal must not push the panel border out, however wide the row is.
+func TestDiffTableStaysInsideThePanel(t *testing.T) {
+	m := diffModel(t, sampleFindings()...)
+	m.diff.res.Rows = append(m.diff.res.Rows, wideRow())
+	for _, size := range [][2]int{{80, 20}, {100, 26}, {132, 30}, {170, 44}, {60, 14}} {
+		m.w, m.h = size[0], size[1]
+		for _, hoff := range []int{0, 20, 400} {
+			m.diff.hoff = hoff
+			w, h := m.contentW(), m.contentH()
+			lines := strings.Split(m.viewDiff(w, h), "\n")
+			if len(lines) != h {
+				t.Errorf("%dx%d hoff=%d: %d lines, want %d", size[0], size[1], hoff, len(lines), h)
+			}
+			for i, ln := range lines {
+				if got := lipgloss.Width(ln); got > w {
+					t.Errorf("%dx%d hoff=%d: line %d is %d columns, over %d",
+						size[0], size[1], hoff, i, got, w)
+				}
+			}
+		}
+	}
+}
