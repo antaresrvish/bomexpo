@@ -59,9 +59,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateDiffDone(msg)
 
 	case footprintDoneMsg:
-		// a failed download just leaves the card showing the package name
-		if msg.err == nil && len(msg.fp.Lands) > 0 && m.edaLands != nil {
-			m.edaLands[msg.code] = msg.fp
+		// A failure is left for fitCmds to retry, up to its limit. An empty answer is
+		// the vendor's final word and gets recorded as such, but it must not wipe
+		// geometry already in hand.
+		if msg.err == nil && m.edaLands != nil {
+			if len(msg.fp.Lands) > 0 || len(m.edaLands[msg.code].Lands) == 0 {
+				m.edaLands[msg.code] = msg.fp
+			}
 		}
 		return m, nil
 
@@ -279,6 +283,8 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	switch md {
 	case modeCheck:
 		m.check.setDefault(m.sourcePath())
+		m.mode = md
+		return m, tea.Batch(m.fitCmds()...)
 	case modeCompare:
 		if len(m.parts.pinned) < 2 {
 			m.flash = "pin at least two parts to compare"

@@ -104,6 +104,7 @@ type Model struct {
 	// compare cards can still draw them.
 	eda      *easyeda.Client
 	edaLands map[string]easyeda.Footprint
+	edaTried map[string]int // requests sent per code, so a dead part stops being retried
 	assigned []*part.Part
 	excluded []bool
 	layers   int
@@ -165,6 +166,7 @@ func New(opt Options) Model {
 	m := Model{
 		srcs: srcs, srcIdx: idx, mode: modeLoad, spin: sp, cplArg: opt.CPL,
 		eda: easyeda.New(), edaLands: map[string]easyeda.Footprint{},
+		edaTried: map[string]int{},
 	}
 	if unknown != "" {
 		m.err = fmt.Sprintf("unknown source %q — using %s (have: %s)",
@@ -647,6 +649,7 @@ type itemState int
 const (
 	stUnassigned itemState = iota
 	stOutOfStock
+	stFootprint
 	stMismatch
 	stOK
 	stExcluded
@@ -661,6 +664,11 @@ func (m Model) stateOf(i int) itemState {
 	}
 	if m.items[i].LCSC == "" {
 		return stUnassigned
+	}
+	// Judged before the early return for an unfetched part: on a board loaded from
+	// disk that is every part, which would hide the fault from the issue list.
+	if ok, _ := m.landFit(i); !ok {
+		return stFootprint
 	}
 	p := m.assigned[i]
 	if p == nil {
@@ -680,7 +688,7 @@ func (m Model) counts() (assigned, warn int) {
 		switch m.stateOf(i) {
 		case stUnassigned:
 			warn++
-		case stOutOfStock, stMismatch:
+		case stOutOfStock, stFootprint, stMismatch:
 			assigned++
 			warn++
 		case stOK:

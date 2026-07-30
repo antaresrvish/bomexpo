@@ -508,6 +508,9 @@ func (m Model) compactOverview(sideW, avail int) []string {
 	if n := m.extCount(); n > 0 {
 		sum += fmt.Sprintf(" · ext %d", n)
 	}
+	if t := m.fitTally(); t.Bad > 0 {
+		sum += fmt.Sprintf(" · footprint %d", t.Bad)
+	}
 	summary := dimStyle.Render(sum)
 
 	lines := append([]string{accentStyle.Render("Overview")}, strings.Split(grid, "\n")...)
@@ -879,6 +882,8 @@ func stateDecor(st itemState) (icon, note string, style lipgloss.Style) {
 		return dimStyle.Render("○"), "needs LCSC part", dimStyle
 	case stOutOfStock:
 		return badStyle.Render("✗"), "OUT OF STOCK", badStyle
+	case stFootprint:
+		return badStyle.Render("▣"), "WRONG FOOTPRINT", badStyle
 	case stMismatch:
 		return warnStyle.Render("⚠"), "value mismatch", warnStyle
 	case stExcluded:

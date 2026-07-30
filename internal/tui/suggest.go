@@ -214,6 +214,8 @@ func stateWord(st itemState) string {
 		return "unassigned"
 	case stOutOfStock:
 		return "oos"
+	case stFootprint:
+		return "footprint"
 	case stMismatch:
 		return "mismatch"
 	case stExcluded:

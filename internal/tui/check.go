@@ -93,6 +93,8 @@ func (m Model) issues() []issue {
 			label = "no LCSC part assigned"
 		case stOutOfStock:
 			label = "assigned part is out of stock"
+		case stFootprint:
+			_, label = m.landFit(i)
 		case stMismatch:
 			label = value.Check(it.Value, m.assigned[i].Description()).Note
 		}
@@ -627,13 +629,15 @@ func rotFamily(fp string) string {
 // preflightAndManifest renders the pre-flight checklist and the order-package
 // manifest side by side, so the Check page uses its width.
 func (m Model) preflightAndManifest(w int) []string {
-	var un, oos, mm int
+	var un, oos, mm, fit int
 	for i := range m.items {
 		switch m.stateOf(i) {
 		case stUnassigned:
 			un++
 		case stOutOfStock:
 			oos++
+		case stFootprint:
+			fit++
 		case stMismatch:
 			mm++
 		}
@@ -658,6 +662,7 @@ func (m Model) preflightAndManifest(w int) []string {
 		chk(mm == 0, "values match the schematic", fmt.Sprintf("%d value mismatches", mm)),
 	}
 	if m.fromBoard() {
+		checklist = append(checklist, m.fitCheck(chk)...)
 		checklist = append(checklist,
 			chk(hasBoard, "board outline "+boardSize(m.boardW, m.boardH), "no board outline"),
 			chk(cli, "kicad-cli ready for gerbers", "kicad-cli not found — gerbers skipped"),
@@ -722,11 +727,34 @@ func twoCol(left, right []string, leftW int) []string {
 	return out
 }
 
+// fitCheck reports the land comparison without claiming a pass it hasn't earned. The
+// unchecked count gets its own line: on the end of the verdict it ran off the panel.
+func (m Model) fitCheck(chk func(bool, string, string) string) []string {
+	t := m.fitTally()
+	var out []string
+	switch {
+	case t.Bad > 0:
+		out = append(out, chk(false, "", fmt.Sprintf("%d parts have more pads than their land", t.Bad)))
+	case t.Pending > 0:
+		out = append(out, dimStyle.Render(fmt.Sprintf("· checking %d parts against their lands…", t.Pending)))
+	case t.Checked > 0:
+		out = append(out, chk(true, fmt.Sprintf("all %d parts fit their footprints", t.Checked), ""))
+	case t.Unchecked == 0:
+		return []string{dimStyle.Render("– no land geometry to check parts against")}
+	}
+	if t.Unchecked > 0 {
+		out = append(out, dimStyle.Render(fmt.Sprintf("– %d unchecked, no vendor geometry", t.Unchecked)))
+	}
+	return out
+}
+
 func colorIssue(st itemState, label string) string {
 	switch st {
 	case stUnassigned:
 		return dimStyle.Render(label)
 	case stOutOfStock:
+		return badStyle.Render(label)
+	case stFootprint:
 		return badStyle.Render(label)
 	case stMismatch:
 		return warnStyle.Render(label)

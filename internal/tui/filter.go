@@ -15,7 +15,7 @@ import (
 //	net:GND          on that net
 //	ref:C1  val:100nF  fp:0402  lcsc:C1525
 //	lib:basic        assembly library standing
-//	st:unassigned    line-item state
+//	st:unassigned    line-item state, st:footprint for a part its land can't take
 //	0402             bare text: reference, value or footprint
 //	-st:excluded     leading minus inverts the term
 //
@@ -195,6 +195,8 @@ func (t filterTerm) hitState(m Model, i int) bool {
 		return st == stOutOfStock
 	case "mismatch":
 		return st == stMismatch
+	case "footprint", "fp", "land":
+		return st == stFootprint
 	case "excluded":
 		return st == stExcluded
 	case "dnp":

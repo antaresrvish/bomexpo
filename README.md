@@ -133,6 +133,21 @@ Landing on a tab never takes the keyboard, so the tab keys keep working — pres
 issue list and the board both want the arrows, so `tab` walks the three panes and `↑↓`
 goes to whichever has them.
 
+### Does the part fit the land?
+
+Opening Export asks the vendor for each assigned part's own land pattern and compares its
+pads against the footprint on your board. Only one direction is a fault: a part with more
+pads than the land has nowhere to solder them, while a land with pads to spare is routine —
+KiCad footprints carry thermal vias and mounting pads no vendor land pattern counts.
+
+This catches what no other check can see. A four-resistor array sold as "27R" passes the
+value check, sits in stock, and carries the same part code in the schematic, the board and
+the BOM, so Verify calls it agreement — but it has eight pins and a `R_0402_1005Metric` land
+offers two. Three of those had reached a finished board here before the check existed.
+
+Parts the vendor has no geometry for are counted separately and named, so an incomplete
+check never reads as a clean one. `st:footprint` filters the table down to the faults.
+
 ### Verify a BOM against the design
 
 `v` in Export lines the same designator up across all three descriptions of the board — the
