@@ -132,20 +132,26 @@ func (m Model) updateSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		if typing {
-			m.search.field.Blur() // one esc leaves the query, the next leaves the search
+			m.mode = modeTable // in the query, esc leaves the search
 			return m, nil
 		}
-		m.mode = modeTable
+		// Out of it, the first esc goes back to what you typed and the second leaves,
+		// so a wrong keyword is one key from being fixed.
+		m.search.field.Focus()
 		return m, nil
 	case "tab", "shift+tab":
 		return m.toggleSearchFocus()
 	case "enter":
 		return m.assignSelected()
 	case "down", "ctrl+n":
+		// Reaching into the results means you are done typing, so the field lets go
+		// and the letters become commands. esc puts you back in it.
+		m.search.field.Blur()
 		m.search.cursor = min(len(m.search.filtered())-1, m.search.cursor+1)
 		m.search.clampSearch(m.searchRows())
 		return m, nil
 	case "up", "ctrl+p":
+		m.search.field.Blur()
 		m.search.cursor = max(0, m.search.cursor-1)
 		m.search.clampSearch(m.searchRows())
 		return m, nil

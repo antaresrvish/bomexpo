@@ -178,7 +178,7 @@ func (m Model) updateCheck(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			m.check.setPane(paneIssues)
-			return m.startExport()
+			return m.requestExport()
 		}
 		m.check.out.Update(msg)
 		return m, nil
@@ -299,6 +299,72 @@ func (m Model) issueRows() int {
 		n = 1
 	}
 	return n
+}
+
+// rotationList shows what the CPL will say versus what the board says, one part per
+// row. It used to be a single line of "SOT-23 +180° ×4" tallies, which told you a
+// count but never which part — and a rotation you did not expect is exactly the thing
+// you want to look up by designator.
+func (m Model) rotationList(fixes []export.RotationFix, w int) []string {
+	manual := 0
+	for _, f := range fixes {
+		if f.Manual {
+			manual++
+		}
+	}
+	head := accentStyle.Render("JLCPCB rotation") +
+		dimStyle.Render(fmt.Sprintf("  %d parts turned for the pick-and-place", len(fixes)))
+	if manual > 0 {
+		head += dimStyle.Render(fmt.Sprintf(" · %d yours", manual))
+	}
+
+	const refW, fpW = 9, 22
+	out := []string{head, colHeadStyle.Render(padRender(
+		"  "+pad("REF", refW)+pad("FOOTPRINT", fpW)+pad("BOARD", 8)+pad("CPL", 8)+"WHY", w))}
+
+	vis := m.rotationRows()
+	for i, f := range fixes {
+		if i >= vis {
+			out = append(out, dimStyle.Render(fmt.Sprintf("  … %d more", len(fixes)-vis)))
+			break
+		}
+		why, st := "library rule", dimStyle
+		if f.Manual {
+			why, st = "your override", warnStyle
+		}
+		out = append(out, padRender("  "+
+			accentStyle.Render(pad(f.Designator, refW))+
+			subtleStyle.Render(pad(trunc(shortFP(f.Footprint), fpW-1), fpW))+
+			dimStyle.Render(pad(fmt.Sprintf("%g°", normDeg(f.From)), 8))+
+			okStyle.Render(pad(fmt.Sprintf("%g°", normDeg(f.To)), 8))+
+			st.Render(why), w))
+	}
+	return out
+}
+
+// shortFP drops the library prefix, the way the table elsewhere shows footprints.
+func shortFP(fp string) string {
+	if i := strings.LastIndex(fp, ":"); i >= 0 {
+		return fp[i+1:]
+	}
+	return fp
+}
+
+// rotationRows keeps the list from crowding out the pricing beneath it.
+func (m Model) rotationRows() int {
+	n := (m.contentH() - 26) / 2
+	return clampInt(n, 3, 10)
+}
+
+// normDeg brings an angle into 0–359, since a CPL never wants a negative one.
+func normDeg(d float64) float64 {
+	for d < 0 {
+		d += 360
+	}
+	for d >= 360 {
+		d -= 360
+	}
+	return d
 }
 
 func (m Model) startExport() (tea.Model, tea.Cmd) {
@@ -426,8 +492,11 @@ func (m Model) viewCheck(w, h int) string {
 		line := "  " + boards + okStyle.Render(pad(fmt.Sprintf("$%.2f", r.Total), 11)) + mark + " " +
 			subtleStyle.Render(perBoard) + why
 		if r.Why == "your order" {
+			// the highlighted cell needs a gap of its own, or the background runs
+			// straight into the label beside it
 			line = "▸ " + boards + okStyle.Render(pad(fmt.Sprintf("$%.2f", r.Total), 11)) + mark + " " +
-				cursorStyle.Render(perBoard) + accentStyle.Render("your order")
+				cursorStyle.Render(pad(fmt.Sprintf("$%.4f", r.PerBoard), 11)) + " " +
+				accentStyle.Render("your order")
 		}
 		pricing = append(pricing, line)
 	}
@@ -467,41 +536,8 @@ func (m Model) viewCheck(w, h int) string {
 	}
 
 	if fixes := export.RotationFixes(m.placements, m.excludeSet(), m.rotOverrideMap()); len(fixes) > 0 {
-		manual := 0
-		for _, f := range fixes {
-			if f.Manual {
-				manual++
-			}
-		}
-		hdr := fmt.Sprintf("  %d parts realigned in the CPL", len(fixes))
-		if manual > 0 {
-			hdr += fmt.Sprintf(" · %d manual override", manual)
-		}
-		lines = append(lines, "", accentStyle.Render("JLCPCB rotation")+dimStyle.Render(hdr))
-		norm := func(d float64) float64 {
-			for d < 0 {
-				d += 360
-			}
-			return d
-		}
-		order := []string{}
-		count := map[string]int{}
-		for _, f := range fixes {
-			key := fmt.Sprintf("%s +%g°", rotFamily(f.Footprint), norm(f.To-f.From))
-			if _, ok := count[key]; !ok {
-				order = append(order, key)
-			}
-			count[key]++
-		}
-		var parts []string
-		for i, k := range order {
-			if i == 6 {
-				parts = append(parts, fmt.Sprintf("+%d more", len(order)-6))
-				break
-			}
-			parts = append(parts, fmt.Sprintf("%s ×%d", k, count[k]))
-		}
-		lines = append(lines, dimStyle.Render("  "+strings.Join(parts, "   ")))
+		lines = append(lines, "")
+		lines = append(lines, m.rotationList(fixes, leftW)...)
 	}
 
 	// The numbers on the left, the board on the right at the full height it can

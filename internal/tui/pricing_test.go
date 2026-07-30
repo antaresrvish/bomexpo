@@ -212,3 +212,33 @@ func TestCheckBoardCountInput(t *testing.T) {
 		t.Errorf("the table does not mark the order:\n%s", out)
 	}
 }
+
+// The highlighted per-board cell must not touch the label beside it — a background
+// running into text reads as one word.
+func TestPricingTargetCellKeepsItsGap(t *testing.T) {
+	m := priceModel(t)
+	m.check.target = 250
+	mm, _ := m.gotoTab(modeCheck)
+	m = mm.(Model)
+
+	var row string
+	for _, ln := range strings.Split(m.viewCheck(m.contentW(), m.contentH()), "\n") {
+		if strings.Contains(stripANSI(ln), "your order") {
+			row = ln
+			break
+		}
+	}
+	if row == "" {
+		t.Fatal("no target row on screen")
+	}
+	plain := stripANSI(row)
+	i := strings.Index(plain, "your order")
+	if i < 1 || plain[i-1] != ' ' {
+		t.Errorf("no gap before the label: %q", plain)
+	}
+	// the highlight must close before the label starts
+	upto := stripANSI(row[:strings.Index(row, "your order")])
+	if !strings.HasSuffix(upto, " ") {
+		t.Errorf("the styled cell runs into the label: %q", upto)
+	}
+}

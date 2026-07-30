@@ -168,3 +168,21 @@ func TestExportWithNoPathSaysSoBeforeAsking(t *testing.T) {
 		t.Errorf("err = %q, want it to name the missing path", mm.(Model).err)
 	}
 }
+
+// The question has to guard every way out, not just the one key. Pressing enter in
+// the output field exports too.
+func TestExportFromTheOutputFieldAlsoAsks(t *testing.T) {
+	m := exportModel(t)
+	m.check.setPane(paneOut)
+	if !m.check.out.Focused() {
+		t.Fatal("the output field should have the keyboard")
+	}
+	mm, cmd := m.updateCheck(key("enter"))
+	m = mm.(Model)
+	if !m.check.confirm.open {
+		t.Error("enter in the output field wrote the zip without asking")
+	}
+	if cmd != nil {
+		t.Error("it asked and started the export anyway")
+	}
+}

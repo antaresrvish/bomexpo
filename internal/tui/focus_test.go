@@ -450,3 +450,57 @@ func TestCompareIsADetourOffParts(t *testing.T) {
 		t.Errorf("Compare should not be a tab: %q", bar)
 	}
 }
+
+// Reaching into the results with the arrows means you are done typing: the field lets
+// go so the letters become commands, and esc puts you back in it.
+func TestArrowIntoResultsHandsOverTheKeyboard(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		enter func(Model) Model
+		down  func(Model) Model
+		esc   func(Model) Model
+		on    func(Model) bool
+		text  func(Model) string
+	}{
+		{
+			name:  "search",
+			enter: func(m Model) Model { mm, _ := m.openSearch(0); return mm.(Model) },
+			down:  func(m Model) Model { mm, _ := m.updateSearchKey(key("down")); return mm.(Model) },
+			esc:   func(m Model) Model { mm, _ := m.updateSearchKey(key("esc")); return mm.(Model) },
+			on:    func(m Model) bool { return m.search.field.Focused() },
+			text:  func(m Model) string { return m.search.field.Value() },
+		},
+		{
+			name: "parts",
+			enter: func(m Model) Model {
+				mm, _ := m.gotoTab(modeParts)
+				return queryFocus(mm.(Model))
+			},
+			down: func(m Model) Model { mm, _ := m.updatePartsKey(key("down")); return mm.(Model) },
+			esc:  func(m Model) Model { mm, _ := m.updatePartsKey(key("esc")); return mm.(Model) },
+			on:   func(m Model) bool { return m.parts.field.Focused() },
+			text: func(m Model) string { return m.parts.field.Value() },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := netModel(t)
+			m.w, m.h = 130, 26
+			m = tc.enter(m)
+			if !tc.on(m) {
+				t.Fatal("the query should have the keyboard on the way in")
+			}
+			m = tc.down(m)
+			if tc.on(m) {
+				t.Error("down into the results should hand the keyboard over")
+			}
+			if tc.text(m) == "" {
+				// give it something to come back to
+				return
+			}
+			m = tc.esc(m)
+			if !tc.on(m) {
+				t.Error("esc should go back to what you typed")
+			}
+		})
+	}
+}
