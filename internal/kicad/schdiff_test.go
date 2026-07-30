@@ -170,7 +170,7 @@ func TestDiffFindsEachKind(t *testing.T) {
 		bomItem("X9", "LOGO", "", ""),
 	}
 
-	d := DiffSchematicBOM(sc, items)
+	d := Compare(sc, nil, items)
 	got := kindsOf(d)
 	for _, tc := range []struct {
 		kind DiffKind
@@ -190,8 +190,10 @@ func TestDiffFindsEachKind(t *testing.T) {
 	if d.SkippedDNP != 1 {
 		t.Errorf("SkippedDNP = %d, want 1 for C3", d.SkippedDNP)
 	}
-	if d.Matched != 1 {
-		t.Errorf("Matched = %d, want 1 (R1)", d.Matched)
+	// R1 agrees outright and C3 is a dnp part correctly left out — both are
+	// agreement, so both count.
+	if d.Matched != 2 {
+		t.Errorf("Matched = %d, want 2 (R1 and the correctly absent C3)", d.Matched)
 	}
 	// the summary has to admit the dnp part it left out
 	if !strings.Contains(d.Summary(), "1 dnp") {
@@ -205,7 +207,7 @@ func TestDiffSortsSeriousFirst(t *testing.T) {
 		"R1|10k|R_0402_1005Metric",
 		"R2|1k|R_0603_1608Metric",
 	))
-	d := DiffSchematicBOM(sc, []Item{
+	d := Compare(sc, nil, []Item{
 		bomItem("R1", "10k", "R_0805_2012Metric", ""), // footprint: not severe
 	})
 	if len(d.Findings) < 2 {
@@ -223,7 +225,7 @@ func TestDiffAcceptsEquivalentValuesAndFootprints(t *testing.T) {
 		"C2|100nF|Capacitor_SMD:C_0402_1005Metric|Device:C",
 		"Q1|2N7002|Package_TO_SOT_SMD:SOT-23",
 	))
-	d := DiffSchematicBOM(sc, []Item{
+	d := Compare(sc, nil, []Item{
 		bomItem("C1", "100nF", "C_0603_1608Metric", ""), // 0.1uF == 100nF
 		bomItem("C2", "100nF", "0402", ""),              // bom records only the size
 		bomItem("Q1", "2N7002", "SOT-23-3", ""),         // one name extends the other
@@ -240,7 +242,7 @@ func TestDiffAcceptsEquivalentValuesAndFootprints(t *testing.T) {
 // finding — real exports contain them.
 func TestDiffIgnoresBOMRowsWithNoDesignator(t *testing.T) {
 	sc := loadFixture(t, schFixture(t, "blank", "R1|10k|R_0603_1608Metric"))
-	d := DiffSchematicBOM(sc, []Item{
+	d := Compare(sc, nil, []Item{
 		bomItem("R1", "10k", "R_0603_1608Metric", ""),
 		{Value: "0.5R", Footprint: "R_0603_1608Metric", Quantity: 0},
 	})
@@ -252,7 +254,7 @@ func TestDiffIgnoresBOMRowsWithNoDesignator(t *testing.T) {
 // Designators differing only in case are the same part.
 func TestDiffMatchesRefsCaseInsensitively(t *testing.T) {
 	sc := loadFixture(t, schFixture(t, "case", "R1|10k|R_0603_1608Metric"))
-	d := DiffSchematicBOM(sc, []Item{bomItem("r1", "10k", "R_0603_1608Metric", "")})
+	d := Compare(sc, nil, []Item{bomItem("r1", "10k", "R_0603_1608Metric", "")})
 	if len(d.Findings) != 0 {
 		t.Errorf("case difference produced %+v", d.Findings)
 	}
@@ -274,7 +276,7 @@ func TestDiffSkipsColumnsTheBOMNeverHad(t *testing.T) {
 		"R1|10k|R_0603_1608Metric",
 		"R2|1k|R_0603_1608Metric",
 	))
-	d := DiffSchematicBOM(sc, items)
+	d := Compare(sc, nil, items)
 	if len(d.Findings) != 0 {
 		t.Errorf("a missing column produced %d findings: %+v", len(d.Findings), d.Findings)
 	}
@@ -282,8 +284,8 @@ func TestDiffSkipsColumnsTheBOMNeverHad(t *testing.T) {
 		t.Errorf("Matched = %d, want 2", d.Matched)
 	}
 	// but it has to say which columns it could not check
-	if got := strings.Join(d.NotCompared(), ","); got != "value,footprint" {
-		t.Errorf("NotCompared = %q, want value,footprint", got)
+	if got := strings.Join(d.NotCompared(), ","); got != "bom value,bom footprint" {
+		t.Errorf("NotCompared = %q, want it to name the side too", got)
 	}
 }
 
@@ -295,7 +297,7 @@ func TestDiffComparesValuesWhenThePresent(t *testing.T) {
 		"R2|36.5k|R_0603_1608Metric",
 		"C1|100nF|C_0603_1608Metric|Device:C",
 	))
-	d := DiffSchematicBOM(sc, []Item{
+	d := Compare(sc, nil, []Item{
 		bomItem("R1", "1M", "R_0603_1608Metric", ""),    // a real mismatch
 		bomItem("R2", "36k5", "R_0603_1608Metric", ""),  // rkm notation, same value
 		bomItem("C1", "0.1uF", "C_0603_1608Metric", ""), // same value, other unit
@@ -310,4 +312,99 @@ func TestDiffComparesValuesWhenThePresent(t *testing.T) {
 	if d.Matched != 2 {
 		t.Errorf("Matched = %d, want 2", d.Matched)
 	}
+}
+
+func pcbItem(refs, val, fp, lcsc string) Item { return bomItem(refs, val, fp, lcsc) }
+
+// Three sides: the schematic is the reference, and the board and the BOM are each
+// reported against it by name, so you know which file to fix.
+func TestCompareNamesTheSideThatDeviates(t *testing.T) {
+	sc := loadFixture(t, schFixture(t, "three",
+		"R1|10k|R_0603_1608Metric", // every side agrees
+		"R2|1k|R_0603_1608Metric",  // the pcb is stale
+		"R3|2k|R_0603_1608Metric",  // the bom is stale
+		"R4|3k|R_0603_1608Metric",  // both are stale, differently
+	))
+	pcb := []Item{
+		pcbItem("R1", "10k", "R_0603_1608Metric", ""),
+		pcbItem("R2", "999k", "R_0603_1608Metric", ""),
+		pcbItem("R3", "2k", "R_0603_1608Metric", ""),
+		pcbItem("R4", "111k", "R_0603_1608Metric", ""),
+	}
+	bom := []Item{
+		bomItem("R1", "10k", "R_0603_1608Metric", ""),
+		bomItem("R2", "1k", "R_0603_1608Metric", ""),
+		bomItem("R3", "888k", "R_0603_1608Metric", ""),
+		bomItem("R4", "222k", "R_0603_1608Metric", ""),
+	}
+	d := Compare(sc, pcb, bom)
+
+	want := map[string]string{
+		"R1": "agrees",
+		"R2": "pcb value",
+		"R3": "bom value",
+		"R4": "pcb value + bom value",
+	}
+	for _, r := range d.Rows {
+		if got := r.What(); got != want[r.Ref] {
+			t.Errorf("%s: %q, want %q", r.Ref, got, want[r.Ref])
+		}
+	}
+	if by := d.SideCounts(); by[SidePCB] != 2 || by[SideBOM] != 2 {
+		t.Errorf("side counts = %v, want 2 each", by)
+	}
+	if d.Matched != 1 {
+		t.Errorf("Matched = %d, want 1", d.Matched)
+	}
+}
+
+// A cell is only highlighted on the side that deviates, so the eye lands on the one
+// to read rather than on the whole row.
+func TestCompareMarksOnlyTheDeviatingSide(t *testing.T) {
+	sc := loadFixture(t, schFixture(t, "sides", "R1|10k|R_0603_1608Metric"))
+	d := Compare(sc,
+		[]Item{pcbItem("R1", "10k", "R_0603_1608Metric", "")},
+		[]Item{bomItem("R1", "47k", "R_0603_1608Metric", "")})
+	if len(d.Rows) != 1 {
+		t.Fatalf("%d rows, want 1", len(d.Rows))
+	}
+	r := d.Rows[0]
+	if !r.SideOK(SidePCB) {
+		t.Error("the pcb agrees but was marked")
+	}
+	if r.SideOK(SideBOM) {
+		t.Error("the bom deviates but was not marked")
+	}
+	if !r.SideOK(SideSch) {
+		t.Error("the schematic is the reference and can never deviate")
+	}
+}
+
+// With no board given, nothing is reported against the pcb column.
+func TestCompareWithoutAPCBReportsOnlyTheBOM(t *testing.T) {
+	sc := loadFixture(t, schFixture(t, "nopcb", "R1|10k|R_0603_1608Metric"))
+	d := Compare(sc, nil, []Item{bomItem("R1", "47k", "R_0603_1608Metric", "")})
+	if by := d.SideCounts(); by[SidePCB] != 0 {
+		t.Errorf("%d findings against a pcb that wasn't given", by[SidePCB])
+	}
+	if d.Rows[0].Cell(SidePCB).Present {
+		t.Error("the pcb cell should be empty")
+	}
+}
+
+// A part on the board with no symbol behind it belongs to the pcb, not the bom.
+func TestComparePinsAnExtraOnTheRightSide(t *testing.T) {
+	sc := loadFixture(t, schFixture(t, "extra", "R1|10k|R_0603_1608Metric"))
+	d := Compare(sc,
+		[]Item{pcbItem("R1", "10k", "R_0603_1608Metric", ""), pcbItem("G***", "LOGO", "LOGO", "")},
+		[]Item{bomItem("R1", "10k", "R_0603_1608Metric", "")})
+	for _, f := range d.Findings {
+		if f.Ref == "G***" {
+			if f.Kind != DiffExtra || f.Side != SidePCB {
+				t.Errorf("G***: %v on the %v, want an extra on the pcb", f.Kind, f.Side)
+			}
+			return
+		}
+	}
+	t.Error("the board-only part was never reported")
 }

@@ -9,14 +9,38 @@ import (
 	"bomexpo/internal/value"
 )
 
-// DiffKind is what went wrong for one designator.
+// Comparing three descriptions of the same board: the schematic, the board file,
+// and a BOM some other tool produced. The schematic is taken as the truth — it is
+// where a designer changes a value — so the board and the BOM are each measured
+// against it.
+
+// Side names one of the three descriptions.
+type Side int
+
+const (
+	SideSch Side = iota
+	SidePCB
+	SideBOM
+)
+
+func (s Side) String() string {
+	switch s {
+	case SidePCB:
+		return "pcb"
+	case SideBOM:
+		return "bom"
+	}
+	return "schematic"
+}
+
+// DiffKind is what went wrong for one designator on one side.
 type DiffKind int
 
 const (
-	// DiffMissing is a part the schematic wants that the BOM never lists — the one
+	// DiffMissing is a part the schematic wants that a side never lists — the one
 	// that gets a board assembled with a hole in it.
 	DiffMissing DiffKind = iota
-	// DiffExtra is a BOM line with no symbol behind it.
+	// DiffExtra is a line with no symbol behind it.
 	DiffExtra
 	// DiffDNP is a part the schematic marks do-not-populate that the BOM buys and
 	// places anyway.
@@ -31,17 +55,17 @@ const (
 func (k DiffKind) String() string {
 	switch k {
 	case DiffMissing:
-		return "missing from bom"
+		return "missing"
 	case DiffExtra:
 		return "not in schematic"
 	case DiffDNP:
-		return "dnp but in bom"
+		return "dnp but listed"
 	case DiffExcluded:
-		return "excluded but in bom"
+		return "excluded but listed"
 	case DiffValue:
-		return "value differs"
+		return "value"
 	case DiffFootprint:
-		return "footprint differs"
+		return "footprint"
 	}
 	return "?"
 }
@@ -56,33 +80,65 @@ func (k DiffKind) Severe() bool {
 	return false
 }
 
-// Finding is one disagreement, with both sides so the fix is obvious.
+// Finding is one disagreement: a kind, the side that deviates, and both readings.
 type Finding struct {
-	Kind DiffKind
-	Ref  string
-	Sch  string // what the schematic says
-	BOM  string // what the BOM says
+	Kind  DiffKind
+	Side  Side
+	Ref   string
+	Sch   string
+	Other string
 }
 
-// Row is one designator with both sides lined up, whether or not they agree. The
+// Cell is one side's description of a designator.
+type Cell struct {
+	Present   bool
+	Value     string
+	Footprint string
+	Code      string
+	DNP       bool
+	OffBOM    bool
+}
+
+// Text writes a cell the same way for every side, so a difference is visible by
+// sitting directly across from its counterpart.
+func (c Cell) Text() string {
+	if !c.Present {
+		return "—"
+	}
+	out := dash(c.Value)
+	if c.Footprint != "" {
+		out += " · " + c.Footprint
+	}
+	if c.Code != "" {
+		out += " · " + c.Code
+	}
+	return out
+}
+
+// Row is one designator across all three sides, whether or not they agree. The
 // report is built from these so a clean comparison still shows its work — a screen
-// that says "all good" and lists nothing is indistinguishable from one that did
+// that says "all good" and lists nothing is indistinguishable from one that ran
 // nothing.
 type Row struct {
-	Ref          string
-	SchValue     string
-	SchFootprint string
-	BOMValue     string
-	BOMFootprint string
-	BOMCode      string
-	InSch        bool
-	InBOM        bool
-	DNP          bool // the schematic marks it do-not-populate
-	OffBOM       bool // the schematic keeps it off the BOM
-	Kinds        []DiffKind
+	Ref           string
+	Sch, PCB, BOM Cell
+	Kinds         []DiffKind
+	Sides         []Side // the side each kind belongs to, in step with Kinds
 }
 
-// Agrees reports whether this designator came out clean.
+// Cell returns one side's reading.
+func (r Row) Cell(s Side) Cell {
+	switch s {
+	case SidePCB:
+		return r.PCB
+	case SideBOM:
+		return r.BOM
+	}
+	return r.Sch
+}
+
+// Agrees reports whether every side that carries this designator describes it the
+// same way.
 func (r Row) Agrees() bool { return len(r.Kinds) == 0 }
 
 // Severe reports whether anything wrong here would spoil an order.
@@ -95,56 +151,83 @@ func (r Row) Severe() bool {
 	return false
 }
 
+// SideOK reports whether a side agrees with the schematic, for colouring its cell.
+func (r Row) SideOK(s Side) bool {
+	if s == SideSch {
+		return true
+	}
+	for _, dev := range r.Sides {
+		if dev == s {
+			return false
+		}
+	}
+	return true
+}
+
 // What names the disagreements, or says the designator is fine.
 func (r Row) What() string {
 	if len(r.Kinds) == 0 {
 		switch {
-		case r.DNP:
+		case r.Sch.DNP:
 			return "dnp, left out"
-		case r.OffBOM:
+		case r.Sch.OffBOM:
 			return "off the bom"
 		}
 		return "agrees"
 	}
+	seen := map[string]bool{}
 	var out []string
-	for _, k := range r.Kinds {
-		out = append(out, k.String())
+	for i, k := range r.Kinds {
+		label := r.Sides[i].String() + " " + k.String()
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
+		out = append(out, label)
 	}
 	return strings.Join(out, " + ")
 }
 
 // SchDiff is the whole comparison.
 type SchDiff struct {
-	SchPath, BOMPath string
-	// Rows is every designator either side knows about, lined up.
+	SchPath, PCBPath, BOMPath string
+	// Rows is every designator any side knows about, lined up.
 	Rows     []Row
 	Findings []Finding
 	SchCount int // bom-eligible symbols
-	BOMCount int // designators in the external bom
-	Matched  int // designators both agree on completely
-	// SkippedDNP counts do-not-populate symbols the BOM rightly leaves out. They
-	// are not findings, but without them the schematic and BOM totals look like
-	// they disagree for no reason.
+	PCBCount int
+	BOMCount int
+	Matched  int // designators every side agrees on
+	// SkippedDNP counts do-not-populate symbols a BOM rightly leaves out. They are
+	// not findings, but without them the totals look like they disagree for no
+	// reason.
 	SkippedDNP int
-	// unread carries the sub-sheets the schematic named but could not be read, so a
-	// comparison over half a design can't pass for a whole one.
-	unread []string
-	// notCompared names the columns the BOM never supplied. Comparing against a
+	unread     []string
+	// notCompared names the columns a side never supplied. Comparing against a
 	// column that isn't there would report every single row as a mismatch.
 	notCompared []string
 }
 
-// NotCompared names the fields the BOM carried no data for.
-func (d SchDiff) NotCompared() []string { return d.notCompared }
-
 // Skipped names the sub-sheets that went unread.
 func (d SchDiff) Skipped() []string { return d.unread }
+
+// NotCompared names the fields a side carried no data for.
+func (d SchDiff) NotCompared() []string { return d.notCompared }
 
 // Counts totals the findings by kind.
 func (d SchDiff) Counts() map[DiffKind]int {
 	out := map[DiffKind]int{}
 	for _, f := range d.Findings {
 		out[f.Kind]++
+	}
+	return out
+}
+
+// SideCounts totals the findings by which side deviates.
+func (d SchDiff) SideCounts() map[Side]int {
+	out := map[Side]int{}
+	for _, f := range d.Findings {
+		out[f.Side]++
 	}
 	return out
 }
@@ -160,107 +243,127 @@ func (d SchDiff) Severe() int {
 	return n
 }
 
-// DiffSchematicBOM compares a schematic against an externally produced BOM, one
-// designator at a time.
-//
-// Values are compared through internal/value, so "0.1uF" and "100nF" agree —
-// a plain string compare would drown the report in false alarms.
-func DiffSchematicBOM(sc *Schematic, items []Item) SchDiff {
-	d := SchDiff{SchPath: sc.Path, unread: sc.Skipped}
+// sideData is one side's designators, plus whether it supplied each column at all.
+type sideData struct {
+	byRef                   map[string]Cell
+	hasValues, hasFootprint bool
+	count                   int
+}
 
-	bySch := map[string]Symbol{}
-	offBOM := map[string]Symbol{}
-	for _, s := range sc.Symbols {
-		if s.Ref == "" {
-			continue
-		}
-		if s.Bommable() {
-			bySch[upRef(s.Ref)] = s
-			d.SchCount++
-			continue
-		}
-		offBOM[upRef(s.Ref)] = s
-	}
-
-	byBOM := map[string]Item{}
-	hasValues, hasFootprints := false, false
+func gather(items []Item) sideData {
+	d := sideData{byRef: map[string]Cell{}}
 	for _, it := range items {
 		if strings.TrimSpace(it.Value) != "" {
-			hasValues = true
+			d.hasValues = true
 		}
 		if strings.TrimSpace(it.Footprint) != "" {
-			hasFootprints = true
+			d.hasFootprint = true
 		}
 		for _, ref := range it.Designators {
 			r := upRef(ref)
 			if r == "" {
 				continue
 			}
-			byBOM[r] = it
-			d.BOMCount++
+			d.byRef[r] = Cell{
+				Present: true, Value: it.Value, Footprint: it.Footprint,
+				Code: it.LCSC, DNP: it.DNP, OffBOM: it.ExcludeBOM,
+			}
+			d.count++
 		}
 	}
-	if len(items) > 0 && !hasValues {
-		d.notCompared = append(d.notCompared, "value")
-	}
-	if len(items) > 0 && !hasFootprints {
-		d.notCompared = append(d.notCompared, "footprint")
+	return d
+}
+
+// Compare lines a schematic up against the board file and an external BOM. Either
+// of the latter may be empty, in which case that column stays blank and nothing is
+// reported against it.
+func Compare(sc *Schematic, pcb, bom []Item) SchDiff {
+	d := SchDiff{SchPath: sc.Path, unread: sc.Skipped}
+
+	schByRef := map[string]Cell{}
+	for _, s := range sc.Symbols {
+		if s.Ref == "" {
+			continue
+		}
+		schByRef[upRef(s.Ref)] = Cell{
+			Present: true, Value: s.Value, Footprint: s.Footprint, Code: s.LCSC,
+			DNP: s.DNP, OffBOM: !s.Bommable(),
+		}
+		if s.Bommable() {
+			d.SchCount++
+		}
 	}
 
-	// Every designator either side knows about, so the report can show its work.
+	pcbData, bomData := gather(pcb), gather(bom)
+	d.PCBCount, d.BOMCount = pcbData.count, bomData.count
+	if len(bom) > 0 && !bomData.hasValues {
+		d.notCompared = append(d.notCompared, "bom value")
+	}
+	if len(bom) > 0 && !bomData.hasFootprint {
+		d.notCompared = append(d.notCompared, "bom footprint")
+	}
+
 	refs := map[string]bool{}
-	for r := range bySch {
-		refs[r] = true
+	for _, m := range []map[string]Cell{schByRef, pcbData.byRef, bomData.byRef} {
+		for r := range m {
+			refs[r] = true
+		}
 	}
-	for r := range offBOM {
-		refs[r] = true
-	}
-	for r := range byBOM {
-		refs[r] = true
+
+	sides := []struct {
+		side Side
+		data sideData
+		on   bool
+	}{
+		{SidePCB, pcbData, len(pcb) > 0},
+		{SideBOM, bomData, len(bom) > 0},
 	}
 
 	for ref := range refs {
-		sym, inSch := bySch[ref]
-		off, isOff := offBOM[ref]
-		if !inSch && isOff {
-			sym = off
-		}
-		it, inBOM := byBOM[ref]
+		sch := schByRef[ref]
+		row := Row{Ref: ref, Sch: sch, PCB: pcbData.byRef[ref], BOM: bomData.byRef[ref]}
 
-		row := Row{
-			Ref: sym.Ref, InSch: inSch, InBOM: inBOM,
-			SchValue: sym.Value, SchFootprint: sym.Footprint,
-			BOMValue: it.Value, BOMFootprint: it.Footprint, BOMCode: it.LCSC,
-			DNP: sym.DNP, OffBOM: isOff,
-		}
-		if row.Ref == "" {
-			row.Ref = ref
+		for _, s := range sides {
+			if !s.on {
+				continue
+			}
+			other := s.data.byRef[ref]
+			switch {
+			case !sch.Present && other.Present:
+				row.add(DiffExtra, s.side)
+				continue
+			case sch.Present && !other.Present:
+				switch {
+				case sch.OffBOM:
+					// kept off the bom on purpose, so its absence is correct
+				case sch.DNP && s.side == SideBOM:
+					d.SkippedDNP++
+				default:
+					row.add(DiffMissing, s.side)
+				}
+				continue
+			case !sch.Present && !other.Present:
+				continue
+			}
+
+			if s.side == SideBOM {
+				switch {
+				case sch.OffBOM:
+					row.add(DiffExcluded, s.side)
+				case sch.DNP:
+					row.add(DiffDNP, s.side)
+				}
+			}
+			if s.data.hasValues && !sameValue(sch.Value, other.Value) {
+				row.add(DiffValue, s.side)
+			}
+			if s.data.hasFootprint && !sameFootprint(sch.Footprint, other.Footprint) {
+				row.add(DiffFootprint, s.side)
+			}
 		}
 
-		switch {
-		case !inSch && !isOff:
-			row.Kinds = append(row.Kinds, DiffExtra)
-		case isOff && inBOM:
-			row.Kinds = append(row.Kinds, DiffExcluded)
-		case inSch && !inBOM:
-			if sym.DNP {
-				d.SkippedDNP++ // a dnp part absent from the bom is the point of dnp
-			} else {
-				row.Kinds = append(row.Kinds, DiffMissing)
-			}
-		case inSch && inBOM:
-			if sym.DNP {
-				row.Kinds = append(row.Kinds, DiffDNP)
-			}
-			if hasValues && !sameValue(sym.Value, it.Value) {
-				row.Kinds = append(row.Kinds, DiffValue)
-			}
-			if hasFootprints && !sameFootprint(sym.Footprint, it.Footprint) {
-				row.Kinds = append(row.Kinds, DiffFootprint)
-			}
-			if row.Agrees() {
-				d.Matched++
-			}
+		if row.Agrees() {
+			d.Matched++
 		}
 		d.Rows = append(d.Rows, row)
 	}
@@ -278,66 +381,33 @@ func DiffSchematicBOM(sc *Schematic, items []Item) SchDiff {
 	})
 
 	for _, r := range d.Rows {
-		for _, k := range r.Kinds {
+		for i, k := range r.Kinds {
+			side := r.Sides[i]
 			d.Findings = append(d.Findings, Finding{
-				Kind: k, Ref: r.Ref, Sch: r.schSide(k), BOM: r.bomSide(k),
+				Kind: k, Side: side, Ref: r.Ref,
+				Sch: r.field(k, SideSch), Other: r.field(k, side),
 			})
 		}
 	}
 	return d
 }
 
-// schSide and bomSide describe just the field a finding is about, so a value
-// mismatch shows values rather than a whole line of unrelated detail.
-func (r Row) schSide(k DiffKind) string {
+func (r *Row) add(k DiffKind, s Side) {
+	r.Kinds = append(r.Kinds, k)
+	r.Sides = append(r.Sides, s)
+}
+
+// field is just the part of a cell a finding is about, so a value mismatch shows
+// values rather than a whole line of unrelated detail.
+func (r Row) field(k DiffKind, s Side) string {
+	c := r.Cell(s)
 	switch k {
 	case DiffValue:
-		return dash(r.SchValue)
+		return dash(c.Value)
 	case DiffFootprint:
-		return dash(r.SchFootprint)
-	case DiffExtra:
-		return "—"
-	case DiffDNP:
-		return "dnp · " + r.SchBoth()
-	case DiffExcluded:
-		return "off the bom · " + r.SchBoth()
+		return dash(c.Footprint)
 	}
-	return r.SchBoth()
-}
-
-func (r Row) bomSide(k DiffKind) string {
-	switch k {
-	case DiffValue:
-		return dash(r.BOMValue)
-	case DiffFootprint:
-		return dash(r.BOMFootprint)
-	case DiffMissing:
-		return "—"
-	}
-	return r.BOMBoth()
-}
-
-// SchBoth and BOMBoth are the two sides written the same way, for a side-by-side
-// listing.
-func (r Row) SchBoth() string {
-	if r.SchFootprint == "" {
-		return dash(r.SchValue)
-	}
-	return dash(r.SchValue) + " · " + r.SchFootprint
-}
-
-func (r Row) BOMBoth() string {
-	if !r.InBOM {
-		return "—"
-	}
-	out := dash(r.BOMValue)
-	if r.BOMFootprint != "" {
-		out += " · " + r.BOMFootprint
-	}
-	if r.BOMCode != "" {
-		out += " · " + r.BOMCode
-	}
-	return out
+	return c.Text()
 }
 
 func upRef(s string) string { return strings.ToUpper(strings.TrimSpace(s)) }
@@ -419,6 +489,14 @@ func (d SchDiff) Summary() string {
 	if len(d.Findings) == 0 {
 		return fmt.Sprintf("%d designators agree%s", d.Matched, dnp)
 	}
-	return fmt.Sprintf("%d of %d agree · %d to review · %d serious%s",
-		d.Matched, d.SchCount, len(d.Findings), d.Severe(), dnp)
+	by := d.SideCounts()
+	var where []string
+	if n := by[SidePCB]; n > 0 {
+		where = append(where, fmt.Sprintf("%d on the pcb", n))
+	}
+	if n := by[SideBOM]; n > 0 {
+		where = append(where, fmt.Sprintf("%d in the bom", n))
+	}
+	return fmt.Sprintf("%d of %d agree · %s%s",
+		d.Matched, len(d.Rows), strings.Join(where, " · "), dnp)
 }

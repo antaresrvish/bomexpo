@@ -99,7 +99,7 @@ func (m Model) schPath() string {
 }
 
 func (m Model) diffCmd(bomPath string) tea.Cmd {
-	sch := m.schPath()
+	sch, pcb := m.schPath(), m.pcbPath
 	return func() tea.Msg {
 		if sch == "" {
 			return diffDoneMsg{err: fmt.Errorf("open a design first — the schematic is found beside it")}
@@ -108,12 +108,22 @@ func (m Model) diffCmd(bomPath string) tea.Cmd {
 		if err != nil {
 			return diffDoneMsg{err: err}
 		}
-		items, err := kicad.ImportBOM(bomPath)
+		// Read the board from disk rather than using the open design: this compares
+		// what the three files say, not what the session has in memory.
+		var pcbItems []kicad.Item
+		if pcb != "" {
+			d, err := kicad.Load(pcb, "")
+			if err != nil {
+				return diffDoneMsg{err: err}
+			}
+			pcbItems = d.Items
+		}
+		bomItems, err := kicad.ImportBOM(bomPath)
 		if err != nil {
 			return diffDoneMsg{err: err}
 		}
-		res := kicad.DiffSchematicBOM(sc, items)
-		res.BOMPath = bomPath
+		res := kicad.Compare(sc, pcbItems, bomItems)
+		res.PCBPath, res.BOMPath = pcb, bomPath
 		return diffDoneMsg{res: res}
 	}
 }
@@ -281,7 +291,7 @@ func diffMark(r kicad.Row) string {
 		return badStyle.Render("! ")
 	case !r.Agrees():
 		return warnStyle.Render("~ ")
-	case r.DNP || r.OffBOM:
+	case r.Sch.DNP || r.Sch.OffBOM:
 		return dimStyle.Render("∅ ")
 	}
 	return okStyle.Render("✓ ")
@@ -299,8 +309,11 @@ func (m Model) viewDiff(w, h int) string {
 	case sch == "":
 		where = badStyle.Render("no design open — load a board or bom first")
 	case s.ran:
-		where = dimStyle.Render("schematic ") + accentStyle.Render(filepath.Base(s.res.SchPath)) +
-			dimStyle.Render("  vs  ") + accentStyle.Render(filepath.Base(s.res.BOMPath))
+		where = dimStyle.Render("sch ") + accentStyle.Render(filepath.Base(s.res.SchPath))
+		if s.res.PCBPath != "" {
+			where += dimStyle.Render("  ·  pcb ") + accentStyle.Render(filepath.Base(s.res.PCBPath))
+		}
+		where += dimStyle.Render("  ·  bom ") + accentStyle.Render(filepath.Base(s.res.BOMPath))
 	default:
 		where = dimStyle.Render("schematic will be found beside ") + subtleStyle.Render(filepath.Base(sch))
 	}
@@ -328,15 +341,16 @@ func (m Model) viewDiff(w, h int) string {
 		lines = append(lines, "")
 	}
 
-	// mark(2) + ref + kind + two side columns + three 3-wide separators
-	const refW, kindW = 9, 21
-	sideW := (w - 2 - refW - kindW - 3*3) / 2
-	if sideW < 12 {
-		sideW = 12
+	// mark(2) + ref + what + three side columns + four 3-wide separators
+	const refW, kindW = 8, 24
+	sideW := (w - 2 - refW - kindW - 4*3) / 3
+	if sideW < 10 {
+		sideW = 10
 	}
 	lines = append(lines,
 		colHeadStyle.Render(padRender(strings.Join([]string{
-			pad("REF", refW), pad("WHAT", kindW), pad("SCHEMATIC", sideW), pad("BOM", sideW),
+			pad("REF", refW), pad("WHAT", kindW),
+			pad("SCHEMATIC", sideW), pad("PCB", sideW), pad("BOM", sideW),
 		}, " | "), w)),
 		borderStyle.Render(strings.Repeat("─", w)))
 
@@ -349,23 +363,24 @@ func (m Model) viewDiff(w, h int) string {
 		plain := []string{
 			pad(trunc(r.Ref, refW), refW),
 			pad(trunc(r.What(), kindW), kindW),
-			pad(trunc(r.SchBoth(), sideW), sideW),
-			pad(trunc(r.BOMBoth(), sideW), sideW),
+			pad(trunc(r.Cell(kicad.SideSch).Text(), sideW), sideW),
+			pad(trunc(r.Cell(kicad.SidePCB).Text(), sideW), sideW),
+			pad(trunc(r.Cell(kicad.SideBOM).Text(), sideW), sideW),
 		}
 		if i == s.cursor {
 			lines = append(lines, selRowStyle.Render(padRender(diffMark(r)+strings.Join(plain, "   "), w)))
 			continue
 		}
-		st := diffRowStyle(r)
 		ref := accentStyle
 		if r.Agrees() {
 			ref = subtleStyle
 		}
 		lines = append(lines, padRender(diffMark(r)+strings.Join([]string{
 			ref.Render(plain[0]),
-			st.Render(plain[1]),
-			diffSide(r, r.SchBoth(), plain[2], true),
-			diffSide(r, r.BOMBoth(), plain[3], false),
+			diffRowStyle(r).Render(plain[1]),
+			diffCell(r, kicad.SideSch, plain[2]),
+			diffCell(r, kicad.SidePCB, plain[3]),
+			diffCell(r, kicad.SideBOM, plain[4]),
 		}, sepStyle.Render(" | ")), w))
 	}
 	if s.ran && len(rows) == 0 {
@@ -382,14 +397,17 @@ func (m Model) viewDiff(w, h int) string {
 	return strings.Join(lines, "\n") + "\n" + m.diffFooter(w)
 }
 
-// diffSide highlights a side only when this row disagrees, so the eye lands on the
-// pairs that need reading rather than on all of them.
-func diffSide(r kicad.Row, _ string, cell string, sch bool) string {
+// diffCell colours one side's cell: the schematic reads as the reference, and only
+// the sides that deviate from it light up, so the eye lands on the cell to read.
+func diffCell(r kicad.Row, side kicad.Side, cell string) string {
 	if r.Agrees() {
 		return dimStyle.Render(cell)
 	}
-	if sch {
-		return okStyle.Render(cell) // the schematic is the side you trust
+	if side == kicad.SideSch {
+		return okStyle.Render(cell)
+	}
+	if r.SideOK(side) {
+		return dimStyle.Render(cell)
 	}
 	return diffRowStyle(r).Render(cell)
 }
@@ -421,12 +439,25 @@ func diffCandidateLine(input string, w int) string {
 func (m Model) diffCounts(w int) string {
 	d := m.diff.res
 	var parts []string
-	for _, k := range []kicad.DiffKind{
-		kicad.DiffMissing, kicad.DiffExtra, kicad.DiffDNP,
-		kicad.DiffValue, kicad.DiffFootprint, kicad.DiffExcluded,
-	} {
-		if n := d.Counts()[k]; n > 0 {
-			parts = append(parts, diffKindStyle(k).Render(fmt.Sprintf("%d %s", n, k)))
+	for _, side := range []kicad.Side{kicad.SidePCB, kicad.SideBOM} {
+		byKind := map[kicad.DiffKind]int{}
+		for _, f := range d.Findings {
+			if f.Side == side {
+				byKind[f.Kind]++
+			}
+		}
+		var bits []string
+		for _, k := range []kicad.DiffKind{
+			kicad.DiffMissing, kicad.DiffExtra, kicad.DiffDNP,
+			kicad.DiffValue, kicad.DiffFootprint, kicad.DiffExcluded,
+		} {
+			if n := byKind[k]; n > 0 {
+				bits = append(bits, diffKindStyle(k).Render(fmt.Sprintf("%d %s", n, k)))
+			}
+		}
+		if len(bits) > 0 {
+			parts = append(parts, accentStyle.Render(side.String()+": ")+
+				strings.Join(bits, dimStyle.Render(", ")))
 		}
 	}
 	if d.SkippedDNP > 0 {
@@ -439,7 +470,8 @@ func (m Model) diffCounts(w int) string {
 		parts = append(parts, warnStyle.Render("no "+strings.Join(nc, "/")+" column in that bom"))
 	}
 	if len(parts) == 0 {
-		return dimStyle.Render(fmt.Sprintf("%d symbols · %d bom designators", d.SchCount, d.BOMCount))
+		return dimStyle.Render(fmt.Sprintf("%d symbols · %d on the pcb · %d bom designators",
+			d.SchCount, d.PCBCount, d.BOMCount))
 	}
 	return padRender(strings.Join(parts, dimStyle.Render(" · ")), w)
 }

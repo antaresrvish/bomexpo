@@ -30,24 +30,29 @@ func diffModel(t *testing.T, findings ...kicad.Finding) Model {
 // sampleRows is two designators that agree and three that don't, two of those
 // seriously.
 func sampleRows() []kicad.Row {
+	sch := func(v, fp string) kicad.Cell {
+		return kicad.Cell{Present: true, Value: v, Footprint: fp}
+	}
 	return []kicad.Row{
-		{Ref: "R2", InSch: true, SchValue: "1k", SchFootprint: "R_0603_1608Metric",
-			Kinds: []kicad.DiffKind{kicad.DiffMissing}},
-		{Ref: "C2", InSch: true, InBOM: true, SchValue: "1uF", BOMValue: "1uF", DNP: true,
-			Kinds: []kicad.DiffKind{kicad.DiffDNP}},
-		{Ref: "C1", InSch: true, InBOM: true, SchFootprint: "C_0603_1608Metric",
-			BOMFootprint: "C_0805_2012Metric", Kinds: []kicad.DiffKind{kicad.DiffFootprint}},
-		{Ref: "R1", InSch: true, InBOM: true, SchValue: "10k", BOMValue: "10k"},
-		{Ref: "R3", InSch: true, InBOM: true, SchValue: "2k", BOMValue: "2k"},
+		{Ref: "R2", Sch: sch("1k", "R_0603_1608Metric"),
+			Kinds: []kicad.DiffKind{kicad.DiffMissing}, Sides: []kicad.Side{kicad.SideBOM}},
+		{Ref: "C2", Sch: kicad.Cell{Present: true, Value: "1uF", DNP: true}, BOM: sch("1uF", ""),
+			Kinds: []kicad.DiffKind{kicad.DiffDNP}, Sides: []kicad.Side{kicad.SideBOM}},
+		{Ref: "C1", Sch: sch("", "C_0603_1608Metric"), BOM: sch("", "C_0805_2012Metric"),
+			Kinds: []kicad.DiffKind{kicad.DiffFootprint}, Sides: []kicad.Side{kicad.SideBOM}},
+		{Ref: "R1", Sch: sch("10k", ""), BOM: sch("10k", "")},
+		{Ref: "R3", Sch: sch("2k", ""), BOM: sch("2k", "")},
 	}
 }
 
 func sampleFindings() []kicad.Finding {
 	return []kicad.Finding{
-		{Kind: kicad.DiffMissing, Ref: "R2", Sch: "1k · R_0603_1608Metric", BOM: "—"},
-		{Kind: kicad.DiffDNP, Ref: "C2", Sch: "dnp · 1uF", BOM: "1uF · C1592"},
-		{Kind: kicad.DiffFootprint, Ref: "C1", Sch: "C_0603_1608Metric", BOM: "C_0805_2012Metric"},
-		{Kind: kicad.DiffExcluded, Ref: "H1", Sch: "excluded · MountingHole", BOM: "MountingHole"},
+		{Kind: kicad.DiffMissing, Side: kicad.SideBOM, Ref: "R2", Sch: "1k", Other: "—"},
+		{Kind: kicad.DiffDNP, Side: kicad.SideBOM, Ref: "C2", Sch: "1uF", Other: "1uF · C1592"},
+		{Kind: kicad.DiffFootprint, Side: kicad.SideBOM, Ref: "C1",
+			Sch: "C_0603_1608Metric", Other: "C_0805_2012Metric"},
+		{Kind: kicad.DiffExcluded, Side: kicad.SideBOM, Ref: "H1",
+			Sch: "MountingHole", Other: "MountingHole"},
 	}
 }
 
@@ -92,7 +97,8 @@ func TestDiffFilterCyclesFromEverything(t *testing.T) {
 func TestDiffEmptyFilterSaysHowManyItHid(t *testing.T) {
 	m := diffModel(t)
 	m.diff.show = showSerious
-	m.diff.res.Rows = []kicad.Row{{Ref: "R1", InSch: true, InBOM: true}}
+	m.diff.res.Rows = []kicad.Row{{Ref: "R1",
+		Sch: kicad.Cell{Present: true}, BOM: kicad.Cell{Present: true}}}
 	out := stripANSI(m.viewDiff(m.contentW(), m.contentH()))
 	if !strings.Contains(out, "1 designators hidden") {
 		t.Errorf("the filter hid a row without saying so:\n%s", out)
@@ -114,7 +120,7 @@ func TestDiffViewShowsSkippedDNP(t *testing.T) {
 func TestDiffViewNamesUnreadSheets(t *testing.T) {
 	m := diffModel(t)
 	sc := &kicad.Schematic{Path: "/tmp/x.kicad_sch", Skipped: []string{"power.kicad_sch"}}
-	m.diff.res = kicad.DiffSchematicBOM(sc, nil)
+	m.diff.res = kicad.Compare(sc, nil, nil)
 	m.diff.res.BOMPath = "/tmp/theirs.csv"
 	out := stripANSI(m.viewDiff(m.contentW(), m.contentH()))
 	if !strings.Contains(out, "unread sheet power.kicad_sch") {
