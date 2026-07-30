@@ -59,6 +59,12 @@ package and type. As you move through the table the side panel shows the selecte
 stock, price and specs next to its footprint. Once everything is assigned and in stock, Export
 writes the zip you upload.
 
+In Export, the volume pricing table is computed rather than fixed: it lists the board counts
+where the price per board actually changes, and says which part changes there — a part used
+four times per board crosses its 100-piece break at 25 boards, not 100. `q` sets the number
+you're really ordering and the table marks it. `enter` on an issue opens that part in
+Components.
+
 Common keys: `enter` assign · `a` auto-assign · `o` cycle rotation override · `x` exclude
 · `w` write LCSC codes back to the pcb · `t`/`b`/`i` open a 3D render · `r` refresh stock
 · `n` filter by net · `tab` filter the table.

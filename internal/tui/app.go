@@ -639,8 +639,8 @@ func (m Model) helpLine(budget int) string {
 			hints = [][2]string{{"↑↓←→", "pan"}, {"+-", "zoom"}, {"0", "reset"}, {"t/b/i", "3D"},
 				{"tab", "output path"}, tabHint(true), {"esc", "back"}}
 		default:
-			hints = [][2]string{{"↑↓", "issues"}, {"tab", "board"}, {"+-", "zoom"}, {"t/b/i", "3D"},
-				{"enter", "export"}, tabHint(true), {"esc", "back"}}
+			hints = [][2]string{{"↑↓", "issues"}, {"enter", "open it"}, {"q", "board count"},
+				{"v", "verify"}, {"x", "export"}, {"tab", "board"}, tabHint(true)}
 		}
 	case modeDiff:
 		if m.diff.field.Focused() {

@@ -331,13 +331,13 @@ func TestCheckPaneRing(t *testing.T) {
 		t.Fatalf("landing on Check starts at pane %v, want the issues", m.check.pane)
 	}
 
-	// with the issues focused, down scrolls the list and leaves the board alone
-	m.check.top = 0
+	// with the issues focused, down moves the issue cursor and leaves the board alone
+	m.check.cur, m.check.top = 0, 0
 	before := m.boardv
 	mm, _ = m.updateCheck(key("down"))
 	m = mm.(Model)
-	if m.check.top != 1 {
-		t.Errorf("down should scroll the issues, top = %d", m.check.top)
+	if m.check.cur != 1 {
+		t.Errorf("down should move the issue cursor, cur = %d", m.check.cur)
 	}
 	if m.boardv != before {
 		t.Error("down should not have panned the board")
@@ -349,14 +349,14 @@ func TestCheckPaneRing(t *testing.T) {
 	if m.check.pane != paneBoard {
 		t.Fatalf("tab went to pane %v, want the board", m.check.pane)
 	}
-	top, before := m.check.top, m.boardv
+	cur, before := m.check.cur, m.boardv
 	mm, _ = m.updateCheck(key("down"))
 	m = mm.(Model)
 	if m.boardv == before {
 		t.Error("down should pan the board once it has focus")
 	}
-	if m.check.top != top {
-		t.Error("down should no longer scroll the issues")
+	if m.check.cur != cur {
+		t.Error("down should no longer move the issue cursor")
 	}
 
 	// round the ring to the path and back
