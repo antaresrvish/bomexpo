@@ -81,7 +81,8 @@ func TestFetchRetriesNonJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
 		if hits == 1 {
-			http.Error(w, "<html>rate limited</html>", http.StatusTooManyRequests)
+			// a 5xx or a truncated read is worth another try; a 4xx is not
+			http.Error(w, "<html>bad gateway</html>", http.StatusBadGateway)
 			return
 		}
 		if r.Header.Get("User-Agent") == "" || r.Header.Get("Referer") == "" {
@@ -115,5 +116,32 @@ func TestFetchGivesUpAndReportsLastError(t *testing.T) {
 
 	if _, err := testClient(t).Fetch("GET", srv.URL, nil); err == nil {
 		t.Fatal("want an error when every attempt returns non-json")
+	}
+}
+
+// A 4xx is the server's decision. Retrying a rate limit is how a short block becomes
+// a long one, and EasyEDA serves a plain 403 for it.
+func TestFetchDoesNotRetryClientErrors(t *testing.T) {
+	for _, status := range []int{http.StatusForbidden, http.StatusTooManyRequests, http.StatusNotFound} {
+		var hits int
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits++
+			http.Error(w, "<html>no</html>", status)
+		}))
+		c := testClient(t)
+		_, err := c.Fetch("GET", srv.URL, nil)
+		srv.Close()
+
+		if err == nil {
+			t.Errorf("%d: no error", status)
+			continue
+		}
+		if hits != 1 {
+			t.Errorf("%d: asked %d times, want once", status, hits)
+		}
+		want := status == http.StatusForbidden || status == http.StatusTooManyRequests
+		if got := RateLimited(err); got != want {
+			t.Errorf("%d: RateLimited = %v, want %v (%v)", status, got, want, err)
+		}
 	}
 }

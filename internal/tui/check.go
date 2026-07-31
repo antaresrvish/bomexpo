@@ -735,6 +735,8 @@ func (m Model) fitCheck(chk func(bool, string, string) string) []string {
 	switch {
 	case t.Bad > 0:
 		out = append(out, chk(false, "", fmt.Sprintf("%d parts have more pads than their land", t.Bad)))
+	case t.Pending > 0 && m.waitingOnVendor():
+		out = append(out, dimStyle.Render(fmt.Sprintf("· %d parts unchecked — the vendor is rate-limiting, waiting it out", t.Pending)))
 	case t.Pending > 0:
 		out = append(out, dimStyle.Render(fmt.Sprintf("· checking %d parts against their lands…", t.Pending)))
 	case t.Checked > 0:

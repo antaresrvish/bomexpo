@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -106,11 +107,13 @@ type Model struct {
 	edaLands    map[string]easyeda.Footprint
 	edaTried    map[string]int // requests sent per code, so a dead part stops being retried
 	edaFetching map[string]bool
-	assigned    []*part.Part
-	excluded    []bool
-	layers      int
-	boardW      float64
-	boardH      float64
+	// padWait is when to resume asking after the vendor turned us away.
+	padWait  time.Time
+	assigned []*part.Part
+	excluded []bool
+	layers   int
+	boardW   float64
+	boardH   float64
 
 	// cplArg is the placement csv named on the command line, used when the
 	// design being opened is a BOM csv.

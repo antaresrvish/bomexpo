@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"bomexpo/internal/kicad"
@@ -22,6 +24,13 @@ func (m Model) landFit(i int) (bool, string) {
 	}
 	return kicad.LandFit(m.landsFor(i), fp.Lands)
 }
+
+// padBackoff is how long to leave the vendor alone after a 403. EasyEDA answers a
+// burst with 403 rather than 429, and it clears on its own.
+const padBackoff = 20 * time.Second
+
+// padResumeMsg says the backoff is over.
+type padResumeMsg struct{}
 
 // maxFitAttempts bounds the asking: EasyEDA has no record of some parts at all —
 // three of 38 on one board — and retrying those leaves the check reading "still

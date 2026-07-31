@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -26,6 +27,9 @@ func (m Model) selCode() string {
 // arriving while one request is out would spend the whole budget on it.
 func (m Model) askPadsCmd(code string) tea.Cmd {
 	if code == "" || m.edaFetching[code] || m.edaTried[code] >= maxFitAttempts {
+		return nil
+	}
+	if m.waitingOnVendor() {
 		return nil
 	}
 	if _, have := m.edaLands[code]; have {
@@ -58,6 +62,9 @@ func (m Model) partFootprintHeader(w int) []string {
 	}
 	if !have {
 		// only say fetching while something actually is
+		if m.waitingOnVendor() {
+			return []string{name, dimStyle.Render("vendor is turning us away — waiting it out")}
+		}
 		if m.edaTried[code] >= maxFitAttempts {
 			return []string{name, dimStyle.Render("could not reach the vendor for its pads")}
 		}
@@ -74,6 +81,11 @@ func (m Model) partFootprintHeader(w int) []string {
 		sum += fmt.Sprintf(" · turned %.0f° to match", math.Mod(a+360, 360))
 	}
 	return []string{name, dimStyle.Render(trunc(sum, w))}
+}
+
+// waitingOnVendor reports whether the client is sitting out a rate limit.
+func (m Model) waitingOnVendor() bool {
+	return !m.padWait.IsZero() && time.Now().Before(m.padWait)
 }
 
 // partFootprint draws the part turned into the land's frame, so the two drawings can

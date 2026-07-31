@@ -6,6 +6,7 @@ package webjson
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -103,12 +104,39 @@ func (c *Client) Fetch(method, url string, body any) ([]byte, error) {
 		}
 		// an error page or a truncated read, both worth another try
 		if !json.Valid(data) {
-			lastErr = fmt.Errorf("decode: response is not json (%d bytes, status %s)", len(data), resp.Status)
+			lastErr = &HTTPError{Status: resp.StatusCode, Bytes: len(data)}
+			// A 4xx is the server's decision and will not change on retry. Hammering
+			// a 403 is how a rate limit turns into a longer one.
+			if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+				return nil, lastErr
+			}
 			continue
 		}
 		return data, nil
 	}
 	return nil, lastErr
+}
+
+// HTTPError is a reply the server chose to send that wasn't the json we asked for.
+type HTTPError struct {
+	Status int
+	Bytes  int
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("server replied %d with %d bytes of non-json", e.Status, e.Bytes)
+}
+
+// RateLimited reports whether the server is turning us away rather than failing.
+// Vendors serve a plain 403 for this as often as a 429.
+func (e *HTTPError) RateLimited() bool {
+	return e.Status == http.StatusForbidden || e.Status == http.StatusTooManyRequests
+}
+
+// RateLimited reports whether err is a vendor turning us away.
+func RateLimited(err error) bool {
+	var he *HTTPError
+	return errors.As(err, &he) && he.RateLimited()
 }
 
 // SetCacheDir redirects the cache, for tests. Empty disables caching.

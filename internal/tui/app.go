@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"bomexpo/internal/part"
+	"bomexpo/internal/webjson"
 )
 
 func (m Model) contentW() int {
@@ -74,15 +76,30 @@ func (m Model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateDiffDone(msg)
 
 	case footprintDoneMsg:
-		// A failure is left for fitCmds to retry, up to its limit. An empty answer is
-		// the vendor's final word and gets recorded as such, but it must not wipe
-		// geometry already in hand.
 		delete(m.edaFetching, msg.code)
-		if msg.err == nil && m.edaLands != nil {
+		switch {
+		case msg.err == nil && m.edaLands != nil:
+			// An empty answer is the vendor's final word and gets recorded as such,
+			// but it must not wipe geometry already in hand.
 			if len(msg.fp.Lands) > 0 || len(m.edaLands[msg.code].Lands) == 0 {
 				m.edaLands[msg.code] = msg.fp
 			}
+		case webjson.RateLimited(msg.err):
+			// Being turned away is not this part's fault, so it keeps its attempts.
+			// The whole client waits instead: asking again at once is how a short
+			// block becomes a long one.
+			if m.edaTried[msg.code] > 0 {
+				m.edaTried[msg.code]--
+			}
+			if m.padWait.IsZero() {
+				m.padWait = time.Now().Add(padBackoff)
+				return m, tea.Tick(padBackoff, func(time.Time) tea.Msg { return padResumeMsg{} })
+			}
 		}
+		return m, nil
+
+	case padResumeMsg:
+		m.padWait = time.Time{}
 		return m, nil
 
 	case projectLoadedMsg:
