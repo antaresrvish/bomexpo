@@ -148,6 +148,18 @@ and Export corrects the exported angle for those. Two things decide it:
 you know better than the table. A design loaded from a BOM csv carries no library names, so
 family offsets apply there as they always did.
 
+### Will the assembler place it?
+
+bomexpo assigns from LCSC's catalogue, which is a superset of what JLCPCB will place, so a
+part can sit in stock at the shop and be absent from the assembly library. That is what
+"No Part Selected" means on their side, and it happened on a real order: a diode with 5,240
+at LCSC and no assembly record at all. Opening Export now asks the assembly library about
+every assigned code and says which ones will come back unmatched.
+
+The two stocks are different numbers and disagree in both directions — one resistor read 0
+at the shop and 3.6 million for assembly — so stock is measured against the assembler's
+shelf when they have one, and the note says whose number it is.
+
 ### Will stock cover the run?
 
 `q` in Export sets how many boards you are really ordering, and stock is then measured

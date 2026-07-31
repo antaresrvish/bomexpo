@@ -98,7 +98,34 @@ func (m Model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.padFill {
-			return m, tea.Batch(m.fitCmds()...) // a lane came free
+			return m, tea.Batch(append(m.fitCmds(), m.asmCmds()...)...) // a lane came free
+		}
+		return m, nil
+
+	case asmDoneMsg:
+		delete(m.asmFetching, msg.code)
+		if webjson.RateLimited(msg.err) {
+			if m.asmTried[msg.code] > 0 {
+				m.asmTried[msg.code]--
+			}
+			if m.asmWait.IsZero() {
+				m.asmWait = time.Now().Add(padBackoff)
+				return m, tea.Tick(padBackoff, func(time.Time) tea.Msg { return asmResumeMsg{} })
+			}
+			return m, nil
+		}
+		if msg.err == nil && m.asm != nil {
+			m.asm[msg.code] = msg.rec
+		}
+		if m.padFill {
+			return m, tea.Batch(m.asmCmds()...)
+		}
+		return m, nil
+
+	case asmResumeMsg:
+		m.asmWait = time.Time{}
+		if m.padFill {
+			return m, tea.Batch(m.asmCmds()...)
 		}
 		return m, nil
 

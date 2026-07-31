@@ -48,8 +48,25 @@ func TestRealBoardStock(t *testing.T) {
 		drain(next)
 	}
 	drain(m.prefillCmd())
+	m.padFill = true
+	for guard := 0; guard < 400; guard++ {
+		cmds := m.asmCmds()
+		if len(cmds) == 0 {
+			break
+		}
+		for _, c := range cmds {
+			drain(c)
+		}
+	}
 
 	m.check.target = boards
+	missing, checked, pending := m.asmTally()
+	t.Logf("assembly library: %d missing, %d found, %d pending", missing, checked, pending)
+	for _, is := range m.issues() {
+		if is.kind == stUnplaceable {
+			t.Logf("  NO-ASM %-10s %s", is.ref, is.label)
+		}
+	}
 	t.Logf("%d boards · %d short · assigned %d", boards, m.shortCount(), len(m.assigned))
 	for _, is := range m.issues() {
 		if is.kind == stShort {
@@ -60,7 +77,7 @@ func TestRealBoardStock(t *testing.T) {
 		t.Logf("  thin: %d, tightest %s", n, tightest)
 	}
 	for _, l := range m.preflightAndManifest(m.contentW()) {
-		if s := stripANSI(l); strings.Contains(s, "stock") || strings.Contains(s, "cover") || strings.Contains(s, "fill") {
+		if s := stripANSI(l); strings.Contains(s, "stock") || strings.Contains(s, "cover") || strings.Contains(s, "fill") || strings.Contains(s, "assemb") || strings.Contains(s, "place") {
 			t.Logf("  PREFLIGHT %s", strings.TrimSpace(s))
 		}
 	}

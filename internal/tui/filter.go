@@ -199,6 +199,8 @@ func (t filterTerm) hitState(m Model, i int) bool {
 		return st == stFootprint
 	case "short", "stock":
 		return st == stShort
+	case "unplaceable", "noasm":
+		return st == stUnplaceable
 	case "excluded":
 		return st == stExcluded
 	case "dnp":

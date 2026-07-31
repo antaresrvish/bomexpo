@@ -29,15 +29,25 @@ func (m Model) needFor(i int) int {
 // went out against 338 pieces.
 func (m Model) stockShort(i int) (bool, string) {
 	p := m.assigned[i]
-	if p == nil || !p.InStock() {
+	if p == nil {
+		return false, ""
+	}
+	// The assembler's shelf is the one the order draws from, and it disagrees with the
+	// shop's in both directions.
+	stock, fromAsm := m.asmStock(i)
+	if stock <= 0 {
 		return false, ""
 	}
 	need := m.needFor(i)
-	if p.Covers(need) {
+	buy := p.BuyQty(need)
+	if stock >= buy {
 		return false, ""
 	}
-	buy := p.BuyQty(need)
-	return true, fmt.Sprintf("stock %s, the order needs %s", groupThousands(p.Stock), groupThousands(buy))
+	whose := "shop stock"
+	if fromAsm {
+		whose = "assembly stock"
+	}
+	return true, fmt.Sprintf("%s %s, the order needs %s", whose, groupThousands(stock), groupThousands(buy))
 }
 
 // thinStock counts line items that cover the order but not comfortably, and names the
@@ -49,12 +59,17 @@ func (m Model) thinStock() (n int, tightest string) {
 			continue
 		}
 		p := m.assigned[i]
-		if p == nil || !p.InStock() {
+		if p == nil {
 			continue
 		}
+		stock, _ := m.asmStock(i)
 		need := m.needFor(i)
-		h := p.Headroom(need)
-		if !p.Covers(need) || h >= thinHeadroom {
+		buy := p.BuyQty(need)
+		if stock <= 0 || buy <= 0 || stock < buy {
+			continue
+		}
+		h := float64(stock) / float64(buy)
+		if h >= thinHeadroom {
 			continue
 		}
 		n++

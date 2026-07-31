@@ -218,8 +218,8 @@ func TestAPartWithNoVendorGeometryStopsBeingRetried(t *testing.T) {
 	if !strings.Contains(out, "unchecked") || !strings.Contains(out, "no vendor geometry") {
 		t.Errorf("pre-flight hid the unchecked parts:\n%s", out)
 	}
-	if strings.Contains(out, "checking") {
-		t.Error("pre-flight still claims a check is in flight")
+	if strings.Contains(out, "against their lands") {
+		t.Error("pre-flight still claims the land check is in flight")
 	}
 }
 

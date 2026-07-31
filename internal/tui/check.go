@@ -93,6 +93,8 @@ func (m Model) issues() []issue {
 			label = "no LCSC part assigned"
 		case stOutOfStock:
 			label = "assigned part is out of stock"
+		case stUnplaceable:
+			_, label = m.unplaceable(i)
 		case stShort:
 			_, label = m.stockShort(i)
 		case stFootprint:
@@ -660,12 +662,13 @@ func (m Model) preflightAndManifest(w int) []string {
 
 	checklist := []string{
 		accentStyle.Render("Pre-flight"),
-		chk(active > 0 && un == 0, fmt.Sprintf("all %d line items assigned", active), fmt.Sprintf("%d line items need an LCSC part", un)),
-		chk(oos == 0, "all assigned parts in stock", fmt.Sprintf("%d parts out of stock", oos)),
+		chk(active > 0 && un == 0, fmt.Sprintf("all %d line items assigned", active), fmt.Sprintf("%s need an LCSC part", plural(un, "line item", "line items"))),
+		chk(oos == 0, "all assigned parts in stock", fmt.Sprintf("%s out of stock", plural(oos, "part", "parts"))),
 	}
+	checklist = append(checklist, m.asmCheck(chk)...)
 	checklist = append(checklist, m.stockCheck(chk)...)
 	checklist = append(checklist,
-		chk(mm == 0, "values match the schematic", fmt.Sprintf("%d value mismatches", mm)))
+		chk(mm == 0, "values match the schematic", fmt.Sprintf("%s", plural(mm, "value mismatch", "value mismatches"))))
 	if m.fromBoard() {
 		checklist = append(checklist, m.fitCheck(chk)...)
 		checklist = append(checklist,
@@ -787,7 +790,7 @@ func colorIssue(st itemState, label string) string {
 		return dimStyle.Render(label)
 	case stOutOfStock:
 		return badStyle.Render(label)
-	case stShort:
+	case stUnplaceable, stShort:
 		return badStyle.Render(label)
 	case stFootprint:
 		return badStyle.Render(label)

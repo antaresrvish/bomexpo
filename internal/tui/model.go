@@ -111,12 +111,17 @@ type Model struct {
 	padWait time.Time
 	// padFill is set once Export has been opened: the pre-flight wants every part's
 	// geometry, not only the row under the cursor.
-	padFill  bool
-	assigned []*part.Part
-	excluded []bool
-	layers   int
-	boardW   float64
-	boardH   float64
+	padFill bool
+	// asm is what the assembly library says about each code, absent until asked.
+	asm         map[string]asmRecord
+	asmTried    map[string]int
+	asmFetching map[string]bool
+	asmWait     time.Time
+	assigned    []*part.Part
+	excluded    []bool
+	layers      int
+	boardW      float64
+	boardH      float64
 
 	// cplArg is the placement csv named on the command line, used when the
 	// design being opened is a BOM csv.
@@ -174,6 +179,7 @@ func New(opt Options) Model {
 		srcs: srcs, srcIdx: idx, mode: modeLoad, spin: sp, cplArg: opt.CPL,
 		eda: easyeda.New(), edaLands: map[string]easyeda.Footprint{},
 		edaTried: map[string]int{}, edaFetching: map[string]bool{},
+		asm: map[string]asmRecord{}, asmTried: map[string]int{}, asmFetching: map[string]bool{},
 	}
 	if unknown != "" {
 		m.err = fmt.Sprintf("unknown source %q — using %s (have: %s)",
@@ -655,6 +661,7 @@ type itemState int
 
 const (
 	stUnassigned itemState = iota
+	stUnplaceable
 	stOutOfStock
 	stShort
 	stFootprint
@@ -678,11 +685,16 @@ func (m Model) stateOf(i int) itemState {
 	if ok, _ := m.landFit(i); !ok {
 		return stFootprint
 	}
+	if bad, _ := m.unplaceable(i); bad {
+		return stUnplaceable
+	}
 	p := m.assigned[i]
 	if p == nil {
 		return stOK
 	}
-	if !p.InStock() {
+	// Out of stock means the order cannot draw it, and the order draws from the
+	// assembler's shelf: one part reads 0 at the shop and 3.6M for assembly.
+	if stock, _ := m.asmStock(i); stock <= 0 {
 		return stOutOfStock
 	}
 	if bad, _ := m.stockShort(i); bad {
@@ -699,7 +711,7 @@ func (m Model) counts() (assigned, warn int) {
 		switch m.stateOf(i) {
 		case stUnassigned:
 			warn++
-		case stOutOfStock, stShort, stFootprint, stMismatch:
+		case stUnplaceable, stOutOfStock, stShort, stFootprint, stMismatch:
 			assigned++
 			warn++
 		case stOK:
