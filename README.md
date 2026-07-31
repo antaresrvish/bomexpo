@@ -135,18 +135,30 @@ goes to whichever has them.
 
 ### Does the part fit the land?
 
-Opening Export asks the vendor for each assigned part's own land pattern and compares its
-pads against the footprint on your board. Only one direction is a fault: a part with more
-pads than the land has nowhere to solder them, while a land with pads to spare is routine —
-KiCad footprints carry thermal vias and mounting pads no vendor land pattern counts.
+Opening Export asks the vendor for each assigned part's own land pattern and compares it
+against the footprint on your board. Two things are faults:
 
-This catches what no other check can see. A four-resistor array sold as "27R" passes the
-value check, sits in stock, and carries the same part code in the schematic, the board and
-the BOM, so Verify calls it agreement — but it has eight pins and a `R_0402_1005Metric` land
-offers two. Three of those had reached a finished board here before the check existed.
+- **more pads than the land offers** — they have nowhere to solder. A land with pads to
+  spare is routine, since KiCad footprints carry thermal vias and mounting pads no vendor
+  land pattern counts.
+- **a part far smaller than its land** — it cannot bridge the pads. Measured over six
+  boards, the tightest correct assignment was a part 82% of its land's diagonal (a
+  hand-soldering footprint, whose pads are deliberately long); the faults sat at 55% and
+  32%, so the line is drawn at 70%.
 
-Parts the vendor has no geometry for are counted separately and named, so an incomplete
-check never reads as a clean one. `st:footprint` filters the table down to the faults.
+This catches what nothing else can see. A four-resistor array sold as "27R" passes the value
+check, sits in stock, and carries the same part code in the schematic, the board and the BOM,
+so Verify calls it agreement — but it has eight pins and an 0402 land offers two. An 0402
+capacitor on an 0603 land has two pads either way and the right value. A WLCSP-9 on a
+WQFN-14 land has fewer pads than the land, so nothing about the count looks wrong.
+
+In Components the side panel shows both: the land from the board, and under it the pads of
+the part meant to sit on it, turned into the same orientation. Vendors publish a footprint in
+their own frame — EasyEDA's differs from KiCad's by 90° on eight of this project's packages
+and 180° on four — so without that turn a correct assignment reads as the wrong part.
+
+Parts the vendor has no geometry for are counted separately and named, so an incomplete check
+never reads as a clean one. `st:footprint` filters the table down to the faults.
 
 ### Verify a BOM against the design
 

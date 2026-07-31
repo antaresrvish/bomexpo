@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"fmt"
+	"math"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
+	"bomexpo/internal/kicad"
 	"bomexpo/internal/render"
 )
 
@@ -51,15 +54,18 @@ func (m Model) partFootprintHeader(w int) []string {
 	if len(fp.Lands) == 0 {
 		return []string{name, dimStyle.Render("no pads published for this part")}
 	}
-	sum := render.FootprintSummary(fp.Lands)
 	if ok, note := m.landFit(i); !ok {
 		return []string{name, badStyle.Render(trunc(note, w))}
 	}
-	return []string{name, dimStyle.Render(sum)}
+	sum := render.FootprintSummary(fp.Lands)
+	if a := kicad.PadAlign(m.landsFor(i), fp.Lands); a != 0 {
+		sum += fmt.Sprintf(" · turned %.0f° to match", math.Mod(a+360, 360))
+	}
+	return []string{name, dimStyle.Render(trunc(sum, w))}
 }
 
-// partFootprint draws the part's pads unrotated: this is the part as the vendor
-// publishes it, not as the board places it.
+// partFootprint draws the part turned into the land's frame, so the two drawings can
+// be compared by eye. Vendors publish in their own orientation.
 func (m Model) partFootprint(w, h int) []string {
 	i := m.sel()
 	if i < 0 || h < 1 {
@@ -69,7 +75,9 @@ func (m Model) partFootprint(w, h int) []string {
 	if !have || len(fp.Lands) == 0 {
 		return nil
 	}
-	img := render.Footprint(fp.Lands, render.FootprintOptions{W: w, H: h})
+	img := render.Footprint(fp.Lands, render.FootprintOptions{
+		W: w, H: h, Rotate: m.rotOf(i) + kicad.PadAlign(m.landsFor(i), fp.Lands),
+	})
 	if img == "" {
 		return []string{dimStyle.Render("too small to draw")}
 	}

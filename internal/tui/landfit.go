@@ -20,7 +20,7 @@ func (m Model) landFit(i int) (bool, string) {
 	if !have {
 		return true, ""
 	}
-	return kicad.FitsLand(len(m.landsFor(i)), len(fp.Lands))
+	return kicad.LandFit(m.landsFor(i), fp.Lands)
 }
 
 // maxFitAttempts bounds the asking: EasyEDA has no record of some parts at all —
