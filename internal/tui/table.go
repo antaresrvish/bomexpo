@@ -147,7 +147,7 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 			m.cursor = min(m.rows()-1, m.cursor+1)
 		}
 		m.clampScroll()
-		return m, nil
+		return m, m.selPartLandsCmd()
 	}
 
 	// a click in the completion dropdown picks that value

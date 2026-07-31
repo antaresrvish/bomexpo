@@ -25,8 +25,8 @@ func fitModel() Model {
 	m := New(Options{})
 	m.pcbPath = "/tmp/board.kicad_pcb" // the land geometry comes from a board
 	m.items = []kicad.Item{
-		{Bases: []string{"R12"}, Value: "27R", Footprint: "R_0402_1005Metric", LCSC: "C2006", Quantity: 1},
-		{Bases: []string{"R1"}, Value: "150k", Footprint: "R_0402_1005Metric", LCSC: "C93947", Quantity: 1},
+		{Designators: []string{"R12"}, Bases: []string{"R12"}, Value: "27R", Footprint: "R_0402_1005Metric", LCSC: "C2006", Quantity: 1},
+		{Designators: []string{"R1"}, Bases: []string{"R1"}, Value: "150k", Footprint: "R_0402_1005Metric", LCSC: "C93947", Quantity: 1},
 	}
 	m.assigned = []*part.Part{
 		{Source: "lcsc", Code: "C2006", Stock: 5000, Prices: []part.Price{{Ladder: 1, USD: 0.01}}, Desc: "4 ±5% 27Ω resistor networks, arrays"},

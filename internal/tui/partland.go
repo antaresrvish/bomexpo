@@ -49,6 +49,10 @@ func (m Model) partFootprintHeader(w int) []string {
 		name += " " + subtleStyle.Render(trunc(fp.Package, max(w-13-len(code), 8)))
 	}
 	if !have {
+		// only say fetching while something actually is
+		if m.edaTried[code] >= maxFitAttempts {
+			return []string{name, dimStyle.Render("could not reach the vendor for its pads")}
+		}
 		return []string{name, dimStyle.Render("fetching pads…")}
 	}
 	if len(fp.Lands) == 0 {

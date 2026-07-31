@@ -121,7 +121,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if exb > 0 {
 			m.flash += fmt.Sprintf(" · %d excluded restored", exb)
 		}
-		return m, m.prefillCmd()
+		return m, tea.Batch(m.prefillCmd(), m.selPartLandsCmd())
 
 	case detailDoneMsg:
 		if msg.err == nil && msg.idx >= 0 && msg.idx < len(m.assigned) {
@@ -281,6 +281,9 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	m.check.setPane(paneIssues)
 
 	switch md {
+	case modeTable:
+		m.mode = md
+		return m, m.selPartLandsCmd()
 	case modeCheck:
 		m.check.setDefault(m.sourcePath())
 		m.mode = md
