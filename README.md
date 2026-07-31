@@ -160,6 +160,11 @@ and 180° on four — so without that turn a correct assignment reads as the wro
 Parts the vendor has no geometry for are counted separately and named, so an incomplete check
 never reads as a clean one. `st:footprint` filters the table down to the faults.
 
+A part's land pattern doesn't change the way its stock and price do, so it is cached for a
+month rather than a day, and the geometry is fetched a few parts at a time rather than all at
+once — asking for a whole board in one go earns a 403. If the vendor turns us away anyway,
+bomexpo says so and waits it out instead of retrying, which only lengthens the block.
+
 ### Verify a BOM against the design
 
 `v` in Export lines the same designator up across all three descriptions of the board — the

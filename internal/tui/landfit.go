@@ -37,12 +37,25 @@ type padResumeMsg struct{}
 // checking" for good.
 const maxFitAttempts = 2
 
-// fitCmds fetches the vendor's land pattern for each assigned part. Unlike landsCmd
-// it does not stop at a part the board already has geometry for — that geometry is
-// the thing being questioned.
+// padLanes is how many pad requests are allowed out at once. Firing one per part
+// meant 47 requests the moment Export opened, which is what earned the 403; a few at
+// a time, topped up as answers land, reads like a browser instead.
+const padLanes = 3
+
+// fitCmds asks for as many parts' land patterns as there are free lanes. Unlike
+// landsCmd it does not stop at a part the board already has geometry for — that
+// geometry is the thing being questioned. Each answer tops the lanes back up, so the
+// pre-flight fills in progressively rather than all at once.
 func (m Model) fitCmds() []tea.Cmd {
+	free := padLanes - len(m.edaFetching)
+	if free <= 0 {
+		return nil
+	}
 	var cmds []tea.Cmd
 	for i := range m.items {
+		if len(cmds) >= free {
+			break
+		}
 		if c := m.askPadsCmd(m.items[i].LCSC); c != nil {
 			cmds = append(cmds, c)
 		}

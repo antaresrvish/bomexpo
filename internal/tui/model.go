@@ -108,7 +108,10 @@ type Model struct {
 	edaTried    map[string]int // requests sent per code, so a dead part stops being retried
 	edaFetching map[string]bool
 	// padWait is when to resume asking after the vendor turned us away.
-	padWait  time.Time
+	padWait time.Time
+	// padFill is set once Export has been opened: the pre-flight wants every part's
+	// geometry, not only the row under the cursor.
+	padFill  bool
 	assigned []*part.Part
 	excluded []bool
 	layers   int

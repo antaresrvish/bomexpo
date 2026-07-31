@@ -95,11 +95,18 @@ func (m Model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.padWait = time.Now().Add(padBackoff)
 				return m, tea.Tick(padBackoff, func(time.Time) tea.Msg { return padResumeMsg{} })
 			}
+			return m, nil
+		}
+		if m.padFill {
+			return m, tea.Batch(m.fitCmds()...) // a lane came free
 		}
 		return m, nil
 
 	case padResumeMsg:
 		m.padWait = time.Time{}
+		if m.padFill {
+			return m, tea.Batch(m.fitCmds()...)
+		}
 		return m, nil
 
 	case projectLoadedMsg:
@@ -316,6 +323,7 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	switch md {
 	case modeCheck:
 		m.check.setDefault(m.sourcePath())
+		m.padFill = true // the pre-flight wants every part, so keep the lanes busy
 		m.mode = md
 		return m, tea.Batch(m.fitCmds()...)
 	case modeCompare:

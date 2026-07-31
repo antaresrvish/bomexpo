@@ -9,6 +9,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"bomexpo/internal/kicad"
 	"bomexpo/internal/webjson"
@@ -21,13 +22,22 @@ const (
 	// EasyEDA works in 10-mil units. Verified against parts with a known pitch:
 	// a 2.54mm header comes out 10 units apart, and an 0.5mm-pitch LQFP 1.969.
 	unitMM = 0.254
+
+	// A part's land pattern doesn't change the way its stock and price do, so the
+	// default day-long freshness would spend requests re-reading settled geometry —
+	// and EasyEDA answers a burst with 403.
+	cacheTTL = 30 * 24 * time.Hour
 )
 
 type Client struct {
 	w *webjson.Client
 }
 
-func New() *Client { return &Client{w: webjson.New("easyeda", site)} }
+func New() *Client {
+	w := webjson.New("easyeda", site)
+	w.SetCacheTTL(cacheTTL)
+	return &Client{w: w}
+}
 
 type Footprint struct {
 	Code    string

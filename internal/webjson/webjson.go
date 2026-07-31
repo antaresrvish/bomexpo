@@ -25,6 +25,8 @@ const (
 	attempts = 3
 	inflight = 6
 
+	// CacheTTL suits what changes: stock and price go stale within the day. A client
+	// whose answers don't change should call SetCacheTTL instead.
 	CacheTTL = 24 * time.Hour
 )
 
@@ -33,6 +35,7 @@ type Client struct {
 	sem      chan struct{}
 	cacheDir string
 	referer  string
+	ttl      time.Duration
 }
 
 // New caches under the user cache dir, per vendor. No directory, no caching.
@@ -41,6 +44,7 @@ func New(name, referer string) *Client {
 		http:    &http.Client{Timeout: timeout},
 		sem:     make(chan struct{}, inflight),
 		referer: referer,
+		ttl:     CacheTTL,
 	}
 	if dir, err := os.UserCacheDir(); err == nil {
 		c.cacheDir = filepath.Join(dir, "bomexpo", name)
@@ -139,6 +143,13 @@ func RateLimited(err error) bool {
 	return errors.As(err, &he) && he.RateLimited()
 }
 
+// SetCacheTTL sets how long a cached answer counts as fresh.
+func (c *Client) SetCacheTTL(d time.Duration) {
+	if d > 0 {
+		c.ttl = d
+	}
+}
+
 // SetCacheDir redirects the cache, for tests. Empty disables caching.
 func (c *Client) SetCacheDir(dir string) { c.cacheDir = dir }
 
@@ -172,7 +183,7 @@ func (c *Client) CacheGet(key string) (raw []byte, fresh, ok bool) {
 	if err != nil {
 		return nil, false, false
 	}
-	return data, time.Since(fi.ModTime()) < CacheTTL, true
+	return data, time.Since(fi.ModTime()) < c.ttl, true
 }
 
 // CachePut ignores failures: a cache miss shouldn't fail a lookup.
