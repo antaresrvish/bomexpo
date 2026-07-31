@@ -39,6 +39,7 @@ func fitModel() Model {
 		"C93947": {Code: "C93947", Package: "R0402", Lands: pads(2)},
 	}
 	m.edaTried = map[string]int{"C2006": 1, "C93947": 1}
+	m.edaFetching = map[string]bool{}
 	m = m.reindex()
 	return m
 }
@@ -176,14 +177,9 @@ func TestOpeningExportFetchesTheGeometry(t *testing.T) {
 	if n := len(m.fitCmds()); n != 2 {
 		t.Fatalf("fitCmds = %d, want one per assigned part", n)
 	}
-	// a request that never came back is retried, but only up to the limit
-	for pass := 2; pass <= maxFitAttempts; pass++ {
-		if n := len(m.fitCmds()); n != 2 {
-			t.Fatalf("pass %d asked for %d, want 2", pass, n)
-		}
-	}
+	// those requests are out, so a second visit asks for nothing
 	if n := len(m.fitCmds()); n != 0 {
-		t.Errorf("asked again for %d parts after %d attempts", n, maxFitAttempts)
+		t.Errorf("asked again for %d parts already in flight", n)
 	}
 }
 
@@ -193,20 +189,21 @@ func TestAPartWithNoVendorGeometryStopsBeingRetried(t *testing.T) {
 	m := fitModel()
 	m.edaLands = map[string]easyeda.Footprint{}
 	m.edaTried = map[string]int{}
+	m.edaFetching = map[string]bool{}
 
-	for pass := 1; pass <= maxFitAttempts+2; pass++ {
+	// each round: ask for everything outstanding, then let every request fail
+	for round := 1; round <= maxFitAttempts; round++ {
 		cmds := m.fitCmds()
-		if pass <= maxFitAttempts && len(cmds) != 2 {
-			t.Fatalf("pass %d asked for %d parts, want 2", pass, len(cmds))
+		if len(cmds) == 0 {
+			t.Fatalf("round %d asked for nothing", round)
 		}
-		if pass > maxFitAttempts && len(cmds) != 0 {
-			t.Fatalf("pass %d still asking after %d attempts", pass, maxFitAttempts)
-		}
-		for _, c := range cmds {
-			mm, _ := m.Update(footprintDoneMsg{code: "C2006", err: errNoSource})
+		for _, code := range []string{"C2006", "C93947"} {
+			mm, _ := m.route(footprintDoneMsg{code: code, err: errNoSource})
 			m = mm.(Model)
-			_ = c
 		}
+	}
+	if n := len(m.fitCmds()); n != 0 {
+		t.Errorf("still asking for %d parts after %d attempts each", n, maxFitAttempts)
 	}
 
 	tl := m.fitTally()

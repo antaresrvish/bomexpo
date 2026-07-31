@@ -105,7 +105,7 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openNetPicker()
 	}
 	m.clampScroll()
-	return m, m.selPartLandsCmd()
+	return m, nil
 }
 
 func (m Model) startAutoAssign() (tea.Model, tea.Cmd) {
@@ -147,7 +147,7 @@ func (m Model) mouseTable(ms tea.Mouse, click, wheel bool) (tea.Model, tea.Cmd) 
 			m.cursor = min(m.rows()-1, m.cursor+1)
 		}
 		m.clampScroll()
-		return m, m.selPartLandsCmd()
+		return m, nil
 	}
 
 	// a click in the completion dropdown picks that value

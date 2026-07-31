@@ -102,14 +102,15 @@ type Model struct {
 
 	// eda fetches land patterns for parts that aren't on this board, so the
 	// compare cards can still draw them.
-	eda      *easyeda.Client
-	edaLands map[string]easyeda.Footprint
-	edaTried map[string]int // requests sent per code, so a dead part stops being retried
-	assigned []*part.Part
-	excluded []bool
-	layers   int
-	boardW   float64
-	boardH   float64
+	eda         *easyeda.Client
+	edaLands    map[string]easyeda.Footprint
+	edaTried    map[string]int // requests sent per code, so a dead part stops being retried
+	edaFetching map[string]bool
+	assigned    []*part.Part
+	excluded    []bool
+	layers      int
+	boardW      float64
+	boardH      float64
 
 	// cplArg is the placement csv named on the command line, used when the
 	// design being opened is a BOM csv.
@@ -166,7 +167,7 @@ func New(opt Options) Model {
 	m := Model{
 		srcs: srcs, srcIdx: idx, mode: modeLoad, spin: sp, cplArg: opt.CPL,
 		eda: easyeda.New(), edaLands: map[string]easyeda.Footprint{},
-		edaTried: map[string]int{},
+		edaTried: map[string]int{}, edaFetching: map[string]bool{},
 	}
 	if unknown != "" {
 		m.err = fmt.Sprintf("unknown source %q — using %s (have: %s)",

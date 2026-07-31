@@ -28,7 +28,22 @@ func (m Model) contentH() int {
 	return h
 }
 
+// Update routes the message, then asks for the selected part's pads. Sprinkling that
+// ask at each call site kept missing one — a click, a sort, a jump from a finding —
+// and the panel would wait for pads nobody had asked for.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	mm, cmd := m.route(msg)
+	next, ok := mm.(Model)
+	if !ok {
+		return mm, cmd
+	}
+	if pads := next.askPadsCmd(next.selCode()); pads != nil {
+		cmd = tea.Batch(cmd, pads)
+	}
+	return next, cmd
+}
+
+func (m Model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
@@ -62,6 +77,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A failure is left for fitCmds to retry, up to its limit. An empty answer is
 		// the vendor's final word and gets recorded as such, but it must not wipe
 		// geometry already in hand.
+		delete(m.edaFetching, msg.code)
 		if msg.err == nil && m.edaLands != nil {
 			if len(msg.fp.Lands) > 0 || len(m.edaLands[msg.code].Lands) == 0 {
 				m.edaLands[msg.code] = msg.fp
@@ -121,7 +137,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if exb > 0 {
 			m.flash += fmt.Sprintf(" · %d excluded restored", exb)
 		}
-		return m, tea.Batch(m.prefillCmd(), m.selPartLandsCmd())
+		return m, m.prefillCmd()
 
 	case detailDoneMsg:
 		if msg.err == nil && msg.idx >= 0 && msg.idx < len(m.assigned) {
@@ -281,9 +297,6 @@ func (m Model) gotoTab(md mode) (tea.Model, tea.Cmd) {
 	m.check.setPane(paneIssues)
 
 	switch md {
-	case modeTable:
-		m.mode = md
-		return m, m.selPartLandsCmd()
 	case modeCheck:
 		m.check.setDefault(m.sourcePath())
 		m.mode = md

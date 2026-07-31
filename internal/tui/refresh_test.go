@@ -18,7 +18,7 @@ func TestPadsAppearWithoutAnotherKey(t *testing.T) {
 	m.edaLands = map[string]easyeda.Footprint{}
 	m.edaTried = map[string]int{}
 
-	mm, cmd := m.updateTable(tea.KeyPressMsg{Code: tea.KeyDown})
+	mm, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = mm.(Model)
 	if cmd == nil {
 		t.Fatal("moving the cursor asked for nothing")
@@ -49,10 +49,27 @@ func TestPadsAppearWithoutAnotherKey(t *testing.T) {
 // with nothing actually fetching — it sat there until you pressed an arrow.
 func TestEveryArrivalAsksForPads(t *testing.T) {
 	arrive := map[string]func(Model) (tea.Model, tea.Cmd){
-		"tab switch to Components": func(m Model) (tea.Model, tea.Cmd) { return m.gotoTab(modeTable) },
-		"enter on a finding":       func(m Model) (tea.Model, tea.Cmd) { return m.jumpToComponent("R12") },
+		"tab switch to Components": func(m Model) (tea.Model, tea.Cmd) {
+			return m.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+		},
+		"enter on an export issue": func(m Model) (tea.Model, tea.Cmd) {
+			mm, _ := m.gotoTab(modeCheck)
+			mc := mm.(Model)
+			mc.check.setPane(paneIssues)
+			mc.edaLands, mc.edaTried, mc.edaFetching = nil, map[string]int{}, map[string]bool{}
+			return mc.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		},
 		"arrow in the table": func(m Model) (tea.Model, tea.Cmd) {
-			return m.updateTable(tea.KeyPressMsg{Code: tea.KeyDown})
+			return m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		},
+		"click on a row": func(m Model) (tea.Model, tea.Cmd) {
+			return m.Update(tea.MouseClickMsg{X: 10, Y: m.dataTop() + 1, Button: tea.MouseLeft})
+		},
+		"sorting a column": func(m Model) (tea.Model, tea.Cmd) {
+			return m.Update(tea.MouseClickMsg{X: 10, Y: m.dataTop() - 2, Button: tea.MouseLeft})
+		},
+		"a message that is not a key at all": func(m Model) (tea.Model, tea.Cmd) {
+			return m.Update(tea.WindowSizeMsg{Width: 132, Height: 46})
 		},
 	}
 	for name, act := range arrive {
@@ -88,5 +105,46 @@ func TestPanelStopsSayingFetchingWhenItGaveUp(t *testing.T) {
 	}
 	if !strings.Contains(out, "could not reach") {
 		t.Errorf("gave up without saying so: %q", out)
+	}
+}
+
+// A request already in flight must not spend a second attempt: two unrelated
+// messages arriving while one is out would exhaust the budget on a part that was
+// about to answer.
+func TestInFlightRequestIsNotAskedTwice(t *testing.T) {
+	m := fitModel()
+	m.w, m.h = 132, 46
+	m.mode = modeTable
+	m.edaLands = map[string]easyeda.Footprint{}
+	m.edaTried = map[string]int{}
+	m.edaFetching = map[string]bool{}
+
+	code := m.selCode()
+	if m.askPadsCmd(code) == nil {
+		t.Fatal("the first ask was refused")
+	}
+	if c := m.askPadsCmd(code); c != nil {
+		t.Error("asked again while a request was still out")
+	}
+	if m.edaTried[code] != 1 {
+		t.Errorf("spent %d attempts on one request", m.edaTried[code])
+	}
+
+	// an answer frees it, and Update reissues on the spot rather than waiting for a key
+	mm, cmd := m.Update(footprintDoneMsg{code: code, err: errNoSource})
+	m = mm.(Model)
+	if cmd == nil {
+		t.Error("a failed request was not retried")
+	}
+	if m.edaTried[code] != 2 {
+		t.Errorf("attempts = %d, want the retry counted", m.edaTried[code])
+	}
+	// and that is the last one
+	mm, cmd = m.Update(footprintDoneMsg{code: code, err: errNoSource})
+	if cmd != nil {
+		t.Errorf("kept asking past %d attempts", maxFitAttempts)
+	}
+	if mm.(Model).edaFetching[code] {
+		t.Error("left marked in flight with nothing out")
 	}
 }

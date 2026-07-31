@@ -34,17 +34,9 @@ const maxFitAttempts = 2
 func (m Model) fitCmds() []tea.Cmd {
 	var cmds []tea.Cmd
 	for i := range m.items {
-		code := m.items[i].LCSC
-		if code == "" || m.edaTried[code] >= maxFitAttempts {
-			continue
+		if c := m.askPadsCmd(m.items[i].LCSC); c != nil {
+			cmds = append(cmds, c)
 		}
-		if _, have := m.edaLands[code]; have {
-			continue
-		}
-		if m.edaTried != nil {
-			m.edaTried[code]++
-		}
-		cmds = append(cmds, m.footprintCmd(code))
 	}
 	return cmds
 }

@@ -11,16 +11,21 @@ import (
 	"bomexpo/internal/render"
 )
 
-// selPartLandsCmd fetches the highlighted part's own pads. Moving through the table
-// asks for one code at a time, which the 24h disk cache absorbs; Export asks for
-// all of them at once, for the pre-flight.
-func (m Model) selPartLandsCmd() tea.Cmd {
+// selCode is the part code under the cursor, empty when there isn't one.
+func (m Model) selCode() string {
 	i := m.sel()
 	if i < 0 || i >= len(m.items) {
-		return nil
+		return ""
 	}
-	code := m.items[i].LCSC
-	if code == "" || m.edaTried[code] >= maxFitAttempts {
+	return m.items[i].LCSC
+}
+
+// askPadsCmd fetches a part's own pads, or returns nil when there is nothing to ask:
+// no code, the pads are in hand, a request is already out, or we have asked as often
+// as we will. In-flight is tracked separately from the attempt count, or two messages
+// arriving while one request is out would spend the whole budget on it.
+func (m Model) askPadsCmd(code string) tea.Cmd {
+	if code == "" || m.edaFetching[code] || m.edaTried[code] >= maxFitAttempts {
 		return nil
 	}
 	if _, have := m.edaLands[code]; have {
@@ -28,6 +33,9 @@ func (m Model) selPartLandsCmd() tea.Cmd {
 	}
 	if m.edaTried != nil {
 		m.edaTried[code]++
+	}
+	if m.edaFetching != nil {
+		m.edaFetching[code] = true
 	}
 	return m.footprintCmd(code)
 }

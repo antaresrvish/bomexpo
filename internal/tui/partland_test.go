@@ -73,20 +73,28 @@ func TestPartPaneSaysWhatItKnows(t *testing.T) {
 	}
 }
 
-// Moving through the table asks for the highlighted part's pads, once.
+// Moving through the table asks for the highlighted part's pads, up to the limit —
+// each answer freeing the next attempt.
 func TestMovingTheCursorFetchesThePartPads(t *testing.T) {
 	m := fitModel()
 	m.edaLands = map[string]easyeda.Footprint{}
 	m.edaTried = map[string]int{}
-	if m.selPartLandsCmd() == nil {
+	m.edaFetching = map[string]bool{}
+	code := m.selCode()
+	if m.askPadsCmd(code) == nil {
 		t.Fatal("the highlighted part's pads were never asked for")
 	}
-	for pass := 2; pass <= maxFitAttempts; pass++ {
-		if m.selPartLandsCmd() == nil {
-			t.Fatalf("pass %d gave up early", pass)
-		}
+	if m.askPadsCmd(code) != nil {
+		t.Error("asked twice for one request")
 	}
-	if m.selPartLandsCmd() != nil {
+	// Update reissues once the answer comes back, until the limit
+	mm, cmd := m.Update(footprintDoneMsg{code: code, err: errNoSource})
+	if cmd == nil {
+		t.Error("no retry after a failure")
+	}
+	mm, cmd = mm.(Model).Update(footprintDoneMsg{code: code, err: errNoSource})
+	if cmd != nil {
 		t.Errorf("kept asking after %d attempts", maxFitAttempts)
 	}
+	_ = mm
 }

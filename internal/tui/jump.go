@@ -50,6 +50,5 @@ func (m Model) jumpToComponent(ref string) (tea.Model, tea.Cmd) {
 	if m.flash == "" {
 		m.flash = "→ " + m.items[i].ID()
 	}
-	// after the cursor moves, or the ask would be for whatever row we left
-	return m, tea.Batch(cmd, m.selPartLandsCmd())
+	return m, cmd
 }
