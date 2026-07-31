@@ -133,6 +133,21 @@ Landing on a tab never takes the keyboard, so the tab keys keep working — pres
 issue list and the board both want the arrows, so `tab` walks the three panes and `↑↓`
 goes to whichever has them.
 
+### Rotation for the pick-and-place
+
+JLCPCB references 0° differently from KiCad's own footprints for a handful of IC families,
+and Export corrects the exported angle for those. Two things decide it:
+
+- **which library the footprint came from.** A footprint imported from the vendor —
+  `easyeda2kicad` and friends — is already drawn to their 0°, so correcting it turns a
+  right angle into a wrong one. bomexpo now keeps the library name and leaves those alone.
+- **which side the part is on.** A bottom-side part is seen from the other side, so its
+  angle mirrors before any family offset applies.
+
+`Export` lists every angle it changed, and `o` on a row sets a per-designator override when
+you know better than the table. A design loaded from a BOM csv carries no library names, so
+family offsets apply there as they always did.
+
 ### Will stock cover the run?
 
 `q` in Export sets how many boards you are really ordering, and stock is then measured

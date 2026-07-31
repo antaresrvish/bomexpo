@@ -6,33 +6,47 @@ import (
 	"bomexpo/internal/kicad"
 )
 
-func TestCorrectRotationTop(t *testing.T) {
+func TestCorrectRotation(t *testing.T) {
 	cases := []struct {
-		fp     string
-		in     float64
-		want   float64
-		bottom bool
+		fp, lib string
+		in      float64
+		want    float64
+		bottom  bool
+		why     string
 	}{
-		{"SOT-23", 0, 180, false},
-		{"SOT-23-6", 90, 270, false},
-		{"SOT-223-3_TabPin2", 0, 180, false},
-		{"SOIC-8_5.3x5.3mm_P1.27mm", 0, 270, false},
-		{"SOIC-16_3.9x9.9mm_P1.27mm", 90, 0, false},
-		{"SSOP-28_5.3x10.2mm_P0.65mm", 90, 0, false},
-		{"VSSOP-8_2.3x2mm_P0.5mm", 0, 270, false},
-		{"D_SOD-123", 0, 180, false},
-		// untouched families keep the angle (normalised).
-		{"R_0402_1005Metric", 90, 90, false},
-		{"C_0603_1608Metric", -90, 270, false},
-		{"QFN-56-1EP_7x7mm_P0.4mm_EP3.2x3.2mm", 0, 0, false},
-		{"JST_SH_BM03B-SRSS-TB_1x03-1MP", 180, 180, false},
-		// bottom mirrors the offset sign.
-		{"SOT-23", 0, 180, true},
-		{"SOIC-8_5.3x5.3mm_P1.27mm", 0, 90, true},
+		{fp: "SOT-23", in: 0, want: 180},
+		{fp: "SOT-23-6", in: 90, want: 270},
+		{fp: "SOT-223-3_TabPin2", in: 0, want: 180},
+		{fp: "SOIC-8_5.3x5.3mm_P1.27mm", in: 0, want: 270},
+		{fp: "SOIC-16_3.9x9.9mm_P1.27mm", in: 90, want: 0},
+		{fp: "SSOP-28_5.3x10.2mm_P0.65mm", in: 90, want: 0},
+		{fp: "VSSOP-8_2.3x2mm_P0.5mm", in: 0, want: 270},
+		{fp: "D_SOD-123", in: 0, want: 180},
+		// untouched families keep the angle, normalised
+		{fp: "R_0402_1005Metric", in: 90, want: 90},
+		{fp: "C_0603_1608Metric", in: -90, want: 270},
+		{fp: "QFN-56-1EP_7x7mm_P0.4mm_EP3.2x3.2mm", in: 0, want: 0},
+		{fp: "JST_SH_BM03B-SRSS-TB_1x03-1MP", in: 180, want: 180},
+
+		// A footprint imported from the vendor is already drawn to their 0°, and the
+		// library is the only thing that says so. JLCPCB reported this one 180° over.
+		{fp: "SOT-23_L2.9-W1.3-P1.90-LS2.4-BR", lib: "easyeda2kicad", in: -90, want: 270,
+			why: "Q1 on the qr-order board"},
+		{fp: "SOT-23", lib: "Package_TO_SOT_SMD", in: 0, want: 180,
+			why: "kicad's own library still gets the offset"},
+
+		// Bottom is seen from the other side, so the angle mirrors before the offset.
+		// JLCPCB reported this connector 180° over, which the mirror accounts for.
+		{fp: "CONN-SMD_2P-P1.00_SM02B-SRSS-TB-LF-SN", lib: "easyeda2kicad", in: 180, want: 0,
+			bottom: true, why: "AA1 on the qr-order board"},
+		{fp: "SOT-23", in: 0, want: 0, bottom: true},
+		{fp: "SOIC-8_5.3x5.3mm_P1.27mm", in: 0, want: 270, bottom: true},
 	}
 	for _, c := range cases {
-		if got := correctRotation(c.fp, c.in, c.bottom); got != c.want {
-			t.Errorf("correctRotation(%q, %g, bottom=%v) = %g, want %g", c.fp, c.in, c.bottom, got, c.want)
+		got := correctRotation(c.fp, c.lib, c.in, c.bottom)
+		if got != c.want {
+			t.Errorf("correctRotation(%q, lib=%q, %g, bottom=%v) = %g, want %g  %s",
+				c.fp, c.lib, c.in, c.bottom, got, c.want, c.why)
 		}
 	}
 }

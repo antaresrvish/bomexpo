@@ -13,6 +13,8 @@ type Placement struct {
 	Layer      string
 	Value      string
 	Package    string
+	// PackageLib is the footprint's library, which decides whose 0° it is drawn to.
+	PackageLib string
 	BodyW      float64
 	BodyH      float64
 }

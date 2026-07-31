@@ -46,11 +46,21 @@ func rotationOffset(footprint string) (float64, bool) {
 	return 0, false
 }
 
-// correctRotation returns the JLCPCB-aligned angle for a footprint. A part on
-// the bottom is mirrored, so its family offset applies with the opposite sign.
-func correctRotation(footprint string, rot float64, bottom bool) float64 {
+// edaLibs are footprint libraries drawn to the vendor's own 0°, because that is
+// where they came from. Applying a KiCad-family offset to one of these turns a
+// correct angle into a wrong one: an easyeda2kicad SOT-23 went out 180° over on a
+// real order, and the library prefix is the only thing that says so.
+var edaLibs = regexp.MustCompile(`(?i)easyeda|jlc|lcsc`)
+
+// correctRotation returns the JLCPCB-aligned angle. The family offset only applies
+// to KiCad's own footprints. A part on the bottom is seen from the other side, so
+// its angle mirrors.
+func correctRotation(footprint, lib string, rot float64, bottom bool) float64 {
+	if bottom {
+		rot = 180 - rot
+	}
 	off, ok := rotationOffset(footprint)
-	if !ok {
+	if !ok || edaLibs.MatchString(lib) {
 		return normDeg(rot)
 	}
 	if bottom {
@@ -76,11 +86,11 @@ type RotationFix struct {
 
 // appliedRot is the angle written to the CPL: a manual per-designator override
 // (applied literally) when present, otherwise the footprint-family correction.
-func appliedRot(footprint string, rot float64, bottom bool, override map[string]int, ref string) (float64, bool) {
+func appliedRot(footprint, lib string, rot float64, bottom bool, override map[string]int, ref string) (float64, bool) {
 	if off, ok := override[ref]; ok {
 		return normDeg(rot + float64(off)), true
 	}
-	return correctRotation(footprint, rot, bottom), false
+	return correctRotation(footprint, lib, rot, bottom), false
 }
 
 // RotationFixes lists the placements whose angle changes in the CPL — via the
@@ -92,7 +102,7 @@ func RotationFixes(placements []kicad.Placement, exclude map[string]bool, overri
 		if exclude[p.Designator] {
 			continue
 		}
-		to, manual := appliedRot(p.Package, p.Rotation, p.Layer == "bottom", override, p.Designator)
+		to, manual := appliedRot(p.Package, p.PackageLib, p.Rotation, p.Layer == "bottom", override, p.Designator)
 		if manual || math.Abs(to-normDeg(p.Rotation)) > 1e-6 {
 			out = append(out, RotationFix{p.Designator, p.Package, p.Rotation, to, manual})
 		}

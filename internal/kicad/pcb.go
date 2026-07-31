@@ -11,9 +11,12 @@ import (
 )
 
 type Component struct {
-	Ref            string
-	Value          string
+	Ref   string
+	Value string
+	// Footprint is the name without its library. FootprintLib keeps the library,
+	// which is the only thing that says whose 0° the footprint is drawn to.
 	Footprint      string
+	FootprintLib   string
 	X, Y, Rot      float64
 	Layer          string
 	LCSC           string
@@ -237,6 +240,7 @@ func resolvePCB(path string) (string, error) {
 func parseFootprint(n *node, netNames map[int]string) (Component, bool) {
 	c := Component{Layer: "top", Rot: 0}
 	if len(n.kids) > 1 {
+		c.FootprintLib = footprintLib(n.kids[1].atom)
 		c.Footprint = shortFootprint(n.kids[1].atom)
 	}
 	minX, minY := math.Inf(1), math.Inf(1)
@@ -318,6 +322,14 @@ func parseFootprint(n *node, netNames map[int]string) (Component, bool) {
 		c.BodyW, c.BodyH = maxX-minX, maxY-minY
 	}
 	return c, true
+}
+
+// footprintLib is the library a footprint came from, empty when it carries none.
+func footprintLib(lib string) string {
+	if i := strings.LastIndex(lib, ":"); i >= 0 {
+		return lib[:i]
+	}
+	return ""
 }
 
 func shortFootprint(lib string) string {
@@ -460,7 +472,7 @@ func (p *Project) Placements() []Placement {
 	for _, c := range p.Components {
 		out = append(out, Placement{
 			Designator: c.Ref, X: c.X, Y: c.Y, Rotation: c.Rot,
-			Layer: c.Layer, Value: c.Value, Package: c.Footprint,
+			Layer: c.Layer, Value: c.Value, Package: c.Footprint, PackageLib: c.FootprintLib,
 			BodyW: c.BodyW, BodyH: c.BodyH,
 		})
 	}
