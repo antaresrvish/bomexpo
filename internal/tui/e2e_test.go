@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // TestRealBoardFit drives the real thing: load a board, open Export, let the
@@ -26,14 +28,37 @@ func TestRealBoardFit(t *testing.T) {
 		t.Fatalf("load: %s", m.err)
 	}
 
-	// ask for every part's geometry the way opening Export does, and give the
-	// retries the passes they are allowed
-	for pass := 0; pass < maxFitAttempts; pass++ {
-		for _, cmd := range m.fitCmds() {
-			if out := cmd(); out != nil {
-				mm, _ = m.Update(out)
-				m = mm.(Model)
+	// Drive it the way the runtime does: run what a command returns, including the
+	// batches Update hands back to top the lanes up. Discarding those left every
+	// lane marked busy with nothing running, and the board half unchecked.
+	m.padFill = true
+	var drain func(tea.Cmd)
+	drain = func(cmd tea.Cmd) {
+		if cmd == nil {
+			return
+		}
+		out := cmd()
+		if batch, ok := out.(tea.BatchMsg); ok {
+			for _, c := range batch {
+				drain(c)
 			}
+			return
+		}
+		if out == nil {
+			return
+		}
+		var next tea.Cmd
+		mm, next = m.Update(out)
+		m = mm.(Model)
+		drain(next)
+	}
+	for guard := 0; guard < 400; guard++ {
+		cmds := m.fitCmds()
+		if len(cmds) == 0 {
+			break
+		}
+		for _, c := range cmds {
+			drain(c)
 		}
 	}
 
