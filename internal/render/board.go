@@ -93,6 +93,31 @@ func (c *canvas) rect(cx, cy, hw, hh int, v byte) {
 	}
 }
 
+// box fills the half-open span between two projected corners. Pads are drawn this
+// way rather than from a rounded half-width: rounding the width up fattens every pad
+// by as much as a subpixel a side, which closes the real gap between neighbours at
+// some scales — an 8-pad array came out as two slabs at one panel height and four
+// pads at the next.
+func (c *canvas) box(x0, y0, x1, y1 int, v byte) {
+	if x1 < x0 {
+		x0, x1 = x1, x0
+	}
+	if y1 < y0 {
+		y0, y1 = y1, y0
+	}
+	if x1 == x0 {
+		x1++ // never lose a pad to rounding
+	}
+	if y1 == y0 {
+		y1++
+	}
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			c.set(x, y, v)
+		}
+	}
+}
+
 func (c *canvas) rectOutline(cx, cy, hw, hh int, v byte) {
 	for x := cx - hw; x <= cx+hw; x++ {
 		c.set(x, cy-hh, v)

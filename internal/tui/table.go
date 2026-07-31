@@ -105,7 +105,7 @@ func (m Model) updateTable(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openNetPicker()
 	}
 	m.clampScroll()
-	return m, nil
+	return m, m.selPartLandsCmd()
 }
 
 func (m Model) startAutoAssign() (tea.Model, tea.Cmd) {
@@ -463,21 +463,39 @@ func (m Model) sidebarBlock(sideW, h int) []string {
 		}
 	}
 	lines = append(lines, borderStyle.Render(strings.Repeat("─", sideW)))
-	head := m.footprintHeader(sideW)
-	for _, ln := range head {
+	// the rule already came out of botH's budget
+	for _, ln := range m.footprintPanes(sideW, botH) {
 		lines = append(lines, padRender(ln, sideW))
 	}
-	// the rule already came out of botH's budget; the rest is header + drawing
-	drawH := botH - len(head)
-	fp := m.miniFootprint(sideW, drawH)
-	for i := 0; i < drawH; i++ {
-		if i < len(fp) {
-			lines = append(lines, padRender(fp[i], sideW))
-		} else {
-			lines = append(lines, spaces(sideW))
-		}
-	}
 	return lines
+}
+
+// minPaneH is the least a footprint pane is worth drawing in: two header lines and
+// three rows of pads.
+const minPaneH = 5
+
+// footprintPanes shows the land from the board and, under it, the pads of the part
+// assigned to sit on it. Seeing an 8-pad part over a 2-pad land is the whole point;
+// a narrow terminal falls back to the land alone rather than two unreadable boxes.
+func (m Model) footprintPanes(w, h int) []string {
+	pane := func(head []string, draw []string, budget int) []string {
+		out := make([]string, 0, budget)
+		out = append(out, head...)
+		for i := 0; i < budget-len(head); i++ {
+			if i < len(draw) {
+				out = append(out, draw[i])
+			} else {
+				out = append(out, "")
+			}
+		}
+		return out
+	}
+	if h < 2*minPaneH {
+		return pane(m.footprintHeader(w), m.miniFootprint(w, h-2), h)
+	}
+	topH := h / 2
+	out := pane(m.footprintHeader(w), m.miniFootprint(w, topH-2), topH)
+	return append(out, pane(m.partFootprintHeader(w), m.partFootprint(w, h-topH-2), h-topH)...)
 }
 
 func (m Model) compactOverview(sideW, avail int) []string {

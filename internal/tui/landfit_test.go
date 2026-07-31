@@ -39,6 +39,7 @@ func fitModel() Model {
 		"C93947": {Code: "C93947", Package: "R0402", Lands: pads(2)},
 	}
 	m.edaTried = map[string]int{"C2006": 1, "C93947": 1}
+	m = m.reindex()
 	return m
 }
 

@@ -69,10 +69,9 @@ func Footprint(lands []kicad.Land, opt FootprintOptions) string {
 		case l.Hole:
 			col = cVia
 		}
-		x, y := at(l.X, l.Y)
-		hw := int(math.Round(l.W / 2 * scale))
-		hh := int(math.Round(l.H / 2 * scale))
-		cv.rect(x, y, max(hw, 0), max(hh, 0), col)
+		x0, y0 := at(l.X-l.W/2, l.Y-l.H/2)
+		x1, y1 := at(l.X+l.W/2, l.Y+l.H/2)
+		cv.box(x0, y0, x1, y1, col)
 	}
 	return compose(cv, opt.W, opt.H)
 }
