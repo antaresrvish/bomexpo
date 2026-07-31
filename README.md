@@ -133,6 +133,18 @@ Landing on a tab never takes the keyboard, so the tab keys keep working — pres
 issue list and the board both want the arrows, so `tab` walks the three panes and `↑↓`
 goes to whichever has them.
 
+### Will stock cover the run?
+
+`q` in Export sets how many boards you are really ordering, and stock is then measured
+against that rather than against zero. A part with ten pieces in stock passed the old
+"in stock" check while a run of 350 boards needed 350 of them.
+
+Quantity per board multiplies — four capacitors a board over 350 boards is 1,400 pieces —
+and the vendor's minimum order counts too, since that is the number that has to be on the
+shelf. Parts that cover the run but not comfortably are named separately: stock moves
+between quoting a board and ordering it, so 1.3× coverage is worth knowing about.
+`st:short` filters the table down to them.
+
 ### Does the part fit the land?
 
 Opening Export asks the vendor for each assigned part's own land pattern and compares it

@@ -119,6 +119,34 @@ func (p Part) Description() string {
 
 func (p Part) InStock() bool { return p.Stock > 0 }
 
+// BuyQty is how many pieces an order of n actually buys: the vendor's minimum when
+// that is more than you need.
+func (p Part) BuyQty(n int) int {
+	if p.MinBuy > n {
+		return p.MinBuy
+	}
+	return n
+}
+
+// Covers reports whether stock can fill an order of n. InStock only asks whether any
+// exist, which passes a part with ten of them against a run of three hundred boards.
+func (p Part) Covers(n int) bool {
+	if n <= 0 {
+		return true
+	}
+	return p.Stock >= p.BuyQty(n)
+}
+
+// Headroom is stock over what an order of n needs. Under 1 the order cannot be
+// filled; a little over 1 is worth a look, since stock moves between quote and order.
+func (p Part) Headroom(n int) float64 {
+	need := p.BuyQty(n)
+	if need <= 0 {
+		return 0
+	}
+	return float64(p.Stock) / float64(need)
+}
+
 func (p Part) UnitPrice() (float64, bool) {
 	if len(p.Prices) == 0 {
 		return 0, false

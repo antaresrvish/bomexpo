@@ -93,6 +93,8 @@ func (m Model) issues() []issue {
 			label = "no LCSC part assigned"
 		case stOutOfStock:
 			label = "assigned part is out of stock"
+		case stShort:
+			_, label = m.stockShort(i)
 		case stFootprint:
 			_, label = m.landFit(i)
 		case stMismatch:
@@ -636,6 +638,7 @@ func (m Model) preflightAndManifest(w int) []string {
 			un++
 		case stOutOfStock:
 			oos++
+		case stShort:
 		case stFootprint:
 			fit++
 		case stMismatch:
@@ -659,8 +662,10 @@ func (m Model) preflightAndManifest(w int) []string {
 		accentStyle.Render("Pre-flight"),
 		chk(active > 0 && un == 0, fmt.Sprintf("all %d line items assigned", active), fmt.Sprintf("%d line items need an LCSC part", un)),
 		chk(oos == 0, "all assigned parts in stock", fmt.Sprintf("%d parts out of stock", oos)),
-		chk(mm == 0, "values match the schematic", fmt.Sprintf("%d value mismatches", mm)),
 	}
+	checklist = append(checklist, m.stockCheck(chk)...)
+	checklist = append(checklist,
+		chk(mm == 0, "values match the schematic", fmt.Sprintf("%d value mismatches", mm)))
 	if m.fromBoard() {
 		checklist = append(checklist, m.fitCheck(chk)...)
 		checklist = append(checklist,
@@ -727,6 +732,32 @@ func twoCol(left, right []string, leftW int) []string {
 	return out
 }
 
+// stockCheck measures stock against the order rather than against zero, and names the
+// tightest part that only just covers: stock moves between quoting and ordering.
+func (m Model) stockCheck(chk func(bool, string, string) string) []string {
+	boards := m.boardTarget()
+	short := m.shortCount()
+	var out []string
+	if short > 0 {
+		out = append(out, chk(false, "", fmt.Sprintf("%s cannot fill an order of %d boards", plural(short, "part", "parts"), boards)))
+	} else if m.anyPriced() {
+		out = append(out, chk(true, fmt.Sprintf("stock covers %s", boardWord(boards)), ""))
+	}
+	if n, tightest := m.thinStock(); n > 0 {
+		out = append(out, dimStyle.Render(fmt.Sprintf("– %s only just covers it, %s", plural(n, "part", "parts"), tightest)))
+	}
+	return out
+}
+
+// boardWord keeps the pre-flight honest about an unset target: everything covers one
+// board, and saying so invites the reader to press q.
+func boardWord(boards int) string {
+	if boards == 1 {
+		return "one board — press q to check a real run"
+	}
+	return fmt.Sprintf("%d boards", boards)
+}
+
 // fitCheck reports the land comparison without claiming a pass it hasn't earned. The
 // unchecked count gets its own line: on the end of the verdict it ran off the panel.
 func (m Model) fitCheck(chk func(bool, string, string) string) []string {
@@ -755,6 +786,8 @@ func colorIssue(st itemState, label string) string {
 	case stUnassigned:
 		return dimStyle.Render(label)
 	case stOutOfStock:
+		return badStyle.Render(label)
+	case stShort:
 		return badStyle.Render(label)
 	case stFootprint:
 		return badStyle.Render(label)

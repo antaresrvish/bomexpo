@@ -54,13 +54,15 @@ func (m Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) confirmContent(w int) []string {
 	issues := m.issues()
-	var un, oos, mism, fit int
+	var un, oos, mism, fit, short int
 	for _, is := range issues {
 		switch is.kind {
 		case stUnassigned:
 			un++
 		case stOutOfStock:
 			oos++
+		case stShort:
+			short++
 		case stFootprint:
 			fit++
 		case stMismatch:
@@ -79,6 +81,7 @@ func (m Model) confirmContent(w int) []string {
 	}
 	add(un, "with no part assigned — they will be missing from the bom", badStyle)
 	add(oos, "out of stock — the assembler cannot buy them", badStyle)
+	add(short, "whose stock cannot fill this order", badStyle)
 	add(fit, "whose part has more pads than the land it sits on", badStyle)
 	add(mism, "whose value does not match the schematic", warnStyle)
 

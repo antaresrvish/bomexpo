@@ -900,6 +900,8 @@ func stateDecor(st itemState) (icon, note string, style lipgloss.Style) {
 		return dimStyle.Render("○"), "needs LCSC part", dimStyle
 	case stOutOfStock:
 		return badStyle.Render("✗"), "OUT OF STOCK", badStyle
+	case stShort:
+		return badStyle.Render("▽"), "NOT ENOUGH STOCK", badStyle
 	case stFootprint:
 		return badStyle.Render("▣"), "WRONG FOOTPRINT", badStyle
 	case stMismatch:

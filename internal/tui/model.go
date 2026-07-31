@@ -656,6 +656,7 @@ type itemState int
 const (
 	stUnassigned itemState = iota
 	stOutOfStock
+	stShort
 	stFootprint
 	stMismatch
 	stOK
@@ -684,6 +685,9 @@ func (m Model) stateOf(i int) itemState {
 	if !p.InStock() {
 		return stOutOfStock
 	}
+	if bad, _ := m.stockShort(i); bad {
+		return stShort
+	}
 	if r := value.Check(m.items[i].Value, p.Description()); !r.Match {
 		return stMismatch
 	}
@@ -695,7 +699,7 @@ func (m Model) counts() (assigned, warn int) {
 		switch m.stateOf(i) {
 		case stUnassigned:
 			warn++
-		case stOutOfStock, stFootprint, stMismatch:
+		case stOutOfStock, stShort, stFootprint, stMismatch:
 			assigned++
 			warn++
 		case stOK:

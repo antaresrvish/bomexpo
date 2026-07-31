@@ -245,7 +245,7 @@ func TestGotoExportAsksForGeometry(t *testing.T) {
 // wear the same one as an out-of-stock part.
 func TestFootprintGlyphIsItsOwn(t *testing.T) {
 	seen := map[string]itemState{}
-	for _, st := range []itemState{stOK, stUnassigned, stOutOfStock, stFootprint, stMismatch, stExcluded} {
+	for _, st := range []itemState{stOK, stUnassigned, stOutOfStock, stShort, stFootprint, stMismatch, stExcluded} {
 		icon, _, _ := stateDecor(st)
 		icon = stripANSI(icon)
 		if prev, dup := seen[icon]; dup {
